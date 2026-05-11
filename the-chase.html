@@ -1,0 +1,4418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>THE CHASE — Sixteen Wins. One Trophy.</title>
+<meta name="description" content="An immersive WebGL scrollytelling experience following the journey to basketball's ultimate prize." />
+<meta name="theme-color" content="#07080a" />
+<meta property="og:title" content="THE CHASE" />
+<meta property="og:description" content="Sixteen wins. One trophy. The journey to immortality." />
+<meta property="og:type" content="website" />
+
+<!-- Display + body + editorial serif -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,500&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+
+<!-- GSAP + ScrollTrigger -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+
+<!-- Three.js as ES modules -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<!-- Safety net + cinematic loader controller. Lives outside the module so it
+     runs even if imports fail; type-on can begin before the module loads. -->
+<script>
+  (function () {
+    var typeDone   = false;
+    var firstFrame = false;
+    var hdrDone    = false;
+    var hidden     = false;
+    var renderedPct = 0;
+
+    function $(id) { return document.getElementById(id); }
+    function force() {
+      if (hidden) return;
+      hidden = true;
+      var el = $('loader');
+      if (el) setTimeout(function () { el.classList.add('done'); }, 150);
+    }
+    function maybeHide() {
+      if (hidden) return;
+      if (typeDone && firstFrame && hdrDone && renderedPct >= 100) force();
+    }
+    function setPct(p) {
+      p = Math.max(renderedPct, p);
+      renderedPct = Math.min(100, p);
+      var el = $('loaderPct');
+      if (el) el.textContent = Math.floor(renderedPct);
+      maybeHide();
+    }
+    function setStatus(s) {
+      var el = $('loaderStatus');
+      if (el) el.textContent = s;
+    }
+
+    // 1) Hard timeout fallback — loader cannot stay > 3.5s under any circumstance
+    setTimeout(force, 3500);
+
+    // 2) Surface module errors visibly instead of silently freezing
+    window.addEventListener('error', function (e) {
+      var el = $('loader');
+      if (!el) return;
+      el.innerHTML = '<div style="font-family:monospace;color:#ff6a3d;max-width:80vw;padding:24px;font-size:13px;line-height:1.5;text-align:center;">' +
+        '<div style="font-size:11px;letter-spacing:0.4em;color:#999;margin-bottom:14px;">RUNTIME ERROR</div>' +
+        (e.message || 'Unknown error') +
+        '<div style="margin-top:10px;font-size:10px;color:#666;">' + (e.filename || '') + ':' + (e.lineno || '') + '</div>' +
+        '</div>';
+    });
+
+    // 3) Expose hooks the module can call to drive the staged hide
+    window.__hideLoader        = force;                                             // hard force (legacy)
+    window.__loaderFirstFrame  = function () { firstFrame = true; setPct(Math.max(renderedPct, 60)); maybeHide(); };
+    window.__loaderHDRDone     = function () { hdrDone = true; setPct(100); setStatus('READY'); maybeHide(); };
+    window.__loaderProgress    = function (p, status) { if (typeof p === 'number') setPct(p); if (status) setStatus(status); };
+
+    // 4) Type-on title — runs as soon as DOM is ready, well before module finishes loading
+    function startTypeOn() {
+      var typeEl = $('loaderType');
+      if (!typeEl) { typeDone = true; hdrDone = true; firstFrame = true; setPct(100); maybeHide(); return; }
+      var word = 'THE CHASE';
+      var i = 0;
+      function step() {
+        if (i >= word.length) {
+          typeDone = true;
+          setStatus('IGNITING');
+          maybeHide();
+          return;
+        }
+        typeEl.textContent = word.substring(0, i + 1);
+        i++;
+        // Synthetic baseline progress during typing so the counter feels alive
+        setPct((i / word.length) * 25);
+        setTimeout(step, 78 + Math.random() * 42);
+      }
+      step();
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', startTypeOn);
+    } else {
+      startTypeOn();
+    }
+  })();
+</script>
+
+<style>
+  :root {
+    --bg: #07080a;
+    --ink: #f4f1ea;
+    --ink-dim: rgba(244, 241, 234, 0.55);
+    --ink-faint: rgba(244, 241, 234, 0.18);
+    --accent-orange: #ff5e1a;
+    --accent-blue: #3a78ff;
+    /* Editorial data-viz tokens */
+    --parchment: #e8dcc4;
+    --oxide:     #3a1a0c;
+    --court:     #c79b6a;
+    --court-deep:#7a5430;
+    --chart-grid: rgba(244, 241, 234, 0.08);
+    --chart-axis: rgba(244, 241, 234, 0.32);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body { cursor: default; }
+  body.is-trophy-active { cursor: grab; }
+  body.is-trophy-active.is-dragging { cursor: grabbing; }
+
+  /* Persistent 3D canvas behind everything */
+  #webgl {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    display: block;
+  }
+
+  /* Subtle vignette + grain overlay so the dark void doesn't feel flat */
+  .void-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.65) 100%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.5 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    mix-blend-mode: overlay;
+    opacity: 0.35;
+  }
+
+  /* Top corner brand mark */
+  .brand {
+    position: fixed;
+    top: 28px;
+    left: 36px;
+    z-index: 10;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 18px;
+    letter-spacing: 0.4em;
+    color: var(--ink);
+    pointer-events: none;
+  }
+  .brand::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: var(--accent-orange);
+    border-radius: 50%;
+    margin-right: 14px;
+    transform: translateY(-2px);
+    box-shadow: 0 0 12px var(--accent-orange);
+  }
+
+  .scroll-hint {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.5em;
+    color: var(--ink-dim);
+    pointer-events: none;
+    transition: opacity 0.6s;
+  }
+  .scroll-hint.hidden { opacity: 0; }
+  .scroll-hint::after {
+    content: "";
+    display: block;
+    width: 1px;
+    height: 40px;
+    margin: 14px auto 0;
+    background: linear-gradient(to bottom, var(--ink-dim), transparent);
+    animation: drip 2s ease-in-out infinite;
+  }
+  @keyframes drip {
+    0%   { transform: scaleY(0); transform-origin: top; }
+    50%  { transform: scaleY(1); transform-origin: top; }
+    51%  { transform: scaleY(1); transform-origin: bottom; }
+    100% { transform: scaleY(0); transform-origin: bottom; }
+  }
+
+  /* Scroll content sits above the canvas */
+  .scroll-content {
+    position: relative;
+    z-index: 2;
+  }
+
+  .scene {
+    height: 100vh;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    padding: 0 8vw;
+    pointer-events: none; /* let canvas drag through where text isn't */
+  }
+
+  .scene .copy {
+    pointer-events: auto;
+    position: relative;
+    isolation: isolate;             /* contain .display's mix-blend-mode within this wrapper */
+  }
+  .scene .copy::before {
+    content: "";
+    position: absolute;
+    inset: -3vh -3vw;
+    background: radial-gradient(ellipse at center, rgba(7,8,10,0.72), rgba(7,8,10,0.45) 55%, rgba(7,8,10,0) 92%);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  /* Mix-blend keeps text readable over any model color */
+  .display {
+    font-family: 'Bebas Neue', sans-serif;
+    color: var(--ink);
+    line-height: 0.88;
+    letter-spacing: -0.01em;
+    mix-blend-mode: difference;
+    text-transform: uppercase;
+  }
+
+  .eyebrow {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 14px;
+    letter-spacing: 0.5em;
+    color: var(--accent-orange);
+    margin-bottom: 18px;
+    display: inline-block;
+  }
+
+  .body-copy {
+    font-family: 'Inter', sans-serif;
+    font-weight: 300;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink-dim);
+    margin-top: 22px;
+    max-width: 360px;
+  }
+
+  /* --- Scene 1: massive centered headline --- */
+  .scene-1 {
+    justify-content: center;
+    text-align: center;
+  }
+  .scene-1 .display {
+    font-size: clamp(120px, 22vw, 340px);
+  }
+  .scene-1 .display span {
+    display: block;
+    font-size: 0.18em;
+    letter-spacing: 0.6em;
+    color: var(--ink-dim);
+    margin-top: 24px;
+    mix-blend-mode: normal;
+  }
+
+  /* --- Scene 2: left-aligned --- */
+  .scene-2 .copy { max-width: 540px; }
+  .scene-2 .display { font-size: clamp(64px, 9vw, 140px); }
+
+  /* spacer scene to give scrub room between 1 -> 2 */
+  .spacer { height: 100vh; }
+
+  /* --- Scene 3: center text, trophy descends --- */
+  .scene-3 {
+    justify-content: center;
+    text-align: center;
+  }
+  .scene-3 .copy { max-width: 520px; }
+  .scene-3 .display { font-size: clamp(60px, 8vw, 120px); }
+  .scene-3 .body-copy { margin: 22px auto 0; }
+  .scene-3 .drag-hint {
+    margin-top: 36px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.4em;
+    color: var(--ink-dim);
+  }
+  .scene-3 .drag-hint::before {
+    content: "↻ ";
+    color: var(--accent-orange);
+    margin-right: 6px;
+  }
+
+  /* tail spacer so the last scene doesn't snap to viewport bottom */
+  .tail { height: 60vh; }
+
+  /* loader — cinematic intro */
+  .loader {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.8s ease;
+  }
+  .loader.done { opacity: 0; pointer-events: none; }
+  .loader.hold-black { opacity: 1; }     /* the 150ms cut-to-black hold */
+  .loader-stage {
+    text-align: center;
+    color: var(--ink);
+    transform: translateY(-1vh);
+  }
+  .loader-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(56px, 11vw, 168px);
+    letter-spacing: 0.04em;
+    line-height: 1;
+    color: var(--ink);
+    margin: 0;
+    min-height: 1em;
+  }
+  .loader-title .caret {
+    display: inline-block;
+    width: 0.06em;
+    background: var(--accent-orange);
+    margin-left: 0.02em;
+    transform: translateY(0.04em);
+    animation: caretBlink 0.85s steps(2, end) infinite;
+  }
+  @keyframes caretBlink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+  .loader-meta {
+    margin-top: clamp(20px, 3vh, 38px);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.32em;
+    color: var(--ink-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+  }
+  .loader-pct {
+    color: var(--accent-orange);
+    font-weight: 500;
+    min-width: 32px;
+    text-align: right;
+    display: inline-block;
+  }
+  .loader-sep { opacity: 0.4; }
+  .loader-status {
+    font-size: 11px;
+    letter-spacing: 0.4em;
+    color: var(--ink-dim);
+  }
+
+  @media (max-width: 720px) {
+    .brand { left: 20px; top: 20px; font-size: 14px; }
+    .scene { padding: 0 6vw; }
+  }
+
+  /* ============================================================
+     CONTENT SECTIONS (overlay on top of persistent 3D background)
+     ============================================================ */
+
+  /* Top scroll progress bar */
+  .scroll-progress {
+    position: fixed;
+    top: 0; left: 0;
+    height: 2px;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent-orange), var(--accent-blue));
+    z-index: 20;
+    transition: width 0.08s linear;
+    box-shadow: 0 0 8px rgba(255,94,26,0.6);
+  }
+
+  .content-block {
+    position: relative;
+    min-height: 100vh;
+    padding: 14vh 8vw;
+    z-index: 2;
+  }
+
+  .section-tag {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.5em;
+    color: var(--accent-orange);
+    display: block;
+    margin-bottom: 10px;
+  }
+
+  .block-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(36px, 5vw, 72px);
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    line-height: 0.95;
+    /* mix-blend-mode dropped here — chart titles scroll past while the trophy
+       can be in frame, and difference mode against gold bloom produced muddy
+       navy text. Soft text-shadow halo gives bulletproof contrast instead. */
+    text-shadow:
+      0 2px 24px rgba(7, 8, 10, 0.78),
+      0 0 56px  rgba(7, 8, 10, 0.42);
+    margin-bottom: 8vh;
+    max-width: 12ch;
+  }
+
+  /* --- STATS REEL --- */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4vw;
+    margin-top: 4vh;
+  }
+  .stat {
+    border-top: 1px solid rgba(244,241,234,0.18);
+    padding-top: 24px;
+  }
+  .stat-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(80px, 13vw, 200px);
+    line-height: 0.85;
+    color: var(--ink);
+    letter-spacing: -0.03em;
+    text-shadow:
+      0 2px 28px rgba(7, 8, 10, 0.8),
+      0 0 70px  rgba(7, 8, 10, 0.4);
+  }
+  .stat-suffix {
+    font-size: 0.4em;
+    color: var(--accent-orange);
+    margin-left: 6px;
+    -webkit-text-fill-color: var(--accent-orange);
+  }
+  .stat-label {
+    font-family: 'Inter', sans-serif;
+    font-weight: 300;
+    font-size: 12px;
+    color: var(--ink-dim);
+    margin-top: 18px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    line-height: 1.4;
+  }
+  @media (max-width: 760px) {
+    .stats-grid { grid-template-columns: 1fr; gap: 8vh; }
+  }
+
+  /* --- DOCTRINE / PULL QUOTE --- */
+  .doctrine {
+    display: flex;
+    align-items: center;
+    max-width: 1200px;
+  }
+  .doctrine-inner { width: 100%; }
+  .big-quote {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: clamp(36px, 5.4vw, 84px);
+    line-height: 1.08;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    text-shadow:
+      0 2px 24px rgba(7, 8, 10, 0.78),
+      0 0 80px  rgba(7, 8, 10, 0.4);
+    margin: 0;
+  }
+  .big-quote .mark {
+    color: var(--accent-orange);
+    font-size: 1.3em;
+    font-style: italic;
+    line-height: 0;
+    vertical-align: -0.15em;
+    margin-right: 4px;
+    -webkit-text-fill-color: var(--accent-orange);
+  }
+  .attr {
+    display: block;
+    margin-top: 40px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 14px;
+    letter-spacing: 0.4em;
+    color: var(--accent-orange);
+  }
+
+  /* --- HALL OF KINGS --- */
+  .champions-roll { padding-bottom: 6vh; }
+  .champ-list {
+    list-style: none;
+    padding: 0;
+    border-top: 1px solid rgba(244,241,234,0.15);
+    margin-top: 4vh;
+  }
+  .champ-list li {
+    display: grid;
+    grid-template-columns: 1fr 2fr auto;
+    align-items: baseline;
+    gap: 2vw;
+    padding: 26px 0;
+    border-bottom: 1px solid rgba(244,241,234,0.1);
+    transition: background 0.5s ease, padding 0.4s ease;
+    cursor: default;
+  }
+  .champ-list li:hover {
+    background: linear-gradient(to right, rgba(255,94,26,0.08), transparent 70%);
+    padding-left: 24px;
+  }
+  .champ-list .year {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(36px, 4.5vw, 64px);
+    color: var(--ink);
+    letter-spacing: 0.03em;
+    line-height: 1;
+  }
+  .champ-list .team {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: clamp(26px, 3.4vw, 48px);
+    color: var(--ink);
+    font-weight: 300;
+  }
+  .champ-list .games {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--ink-dim);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .champ-list .next .year,
+  .champ-list .next .team { color: var(--accent-orange); }
+  .champ-list .next { border-bottom: none; }
+  @media (max-width: 760px) {
+    .champ-list li { grid-template-columns: 1fr 1fr; }
+    .champ-list .games { display: none; }
+  }
+
+  /* --- FOOTER + MARQUEE --- */
+  .marquee {
+    overflow: hidden;
+    white-space: nowrap;
+    border-top: 1px solid rgba(244,241,234,0.15);
+    border-bottom: 1px solid rgba(244,241,234,0.15);
+    padding: 22px 0;
+    background: rgba(0,0,0,0.3);
+    position: relative;
+    z-index: 2;
+  }
+  .marquee-track {
+    display: inline-block;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 26px;
+    letter-spacing: 0.32em;
+    color: var(--ink-dim);
+    animation: marquee 36s linear infinite;
+    padding-left: 100%;
+  }
+  .marquee-track .dot { color: var(--accent-orange); margin: 0 14px; }
+  @keyframes marquee {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-100%); }
+  }
+
+  .site-footer {
+    position: relative;
+    z-index: 2;
+    background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.55) 60%);
+    padding-bottom: 50px;
+  }
+  .footer-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 50px;
+    padding: 80px 8vw 40px;
+  }
+  .footer-brand {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 0.45em;
+    color: var(--ink);
+    margin-bottom: 22px;
+  }
+  .footer-brand::before {
+    content: "";
+    display: inline-block;
+    width: 8px; height: 8px;
+    background: var(--accent-orange);
+    border-radius: 50%;
+    margin-right: 12px;
+    transform: translateY(-3px);
+    box-shadow: 0 0 10px var(--accent-orange);
+  }
+  .footer-grid p {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 300;
+    color: var(--ink-dim);
+    line-height: 1.7;
+  }
+  .footer-tag {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.4em;
+    color: var(--accent-orange);
+    margin-bottom: 14px;
+  }
+  .footer-base {
+    padding: 30px 8vw 0;
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid rgba(244,241,234,0.08);
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    color: var(--ink-dim);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  @media (max-width: 760px) {
+    .footer-grid { grid-template-columns: 1fr; gap: 40px; padding: 60px 6vw 30px; }
+    .footer-base { flex-direction: column; gap: 14px; padding: 20px 6vw 0; }
+  }
+
+  /* ============================================================
+     CHART SYSTEM — bespoke editorial data viz
+     Every chart has: lede (Bebas), subhed (Cormorant italic),
+     annotations (Inter), source line (JetBrains Mono).
+     ============================================================ */
+  .chart-frame {
+    position: relative;
+    margin-top: 6vh;
+  }
+  .chart-lede {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.45em;
+    color: var(--accent-orange);
+    margin-bottom: 10px;
+  }
+  .chart-subhed {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: clamp(20px, 2.4vw, 32px);
+    line-height: 1.25;
+    color: var(--ink);
+    text-shadow:
+      0 2px 18px rgba(7, 8, 10, 0.7),
+      0 0 40px  rgba(7, 8, 10, 0.35);
+    max-width: 56ch;
+    margin-bottom: 28px;
+  }
+  .chart-subhed em {
+    font-style: normal;
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: 0.08em;
+    color: var(--accent-orange);
+    margin: 0 4px;
+    font-size: 0.78em;
+    vertical-align: 0.06em;
+  }
+  .chart-source {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--ink-dim);
+    margin-top: 22px;
+    text-transform: uppercase;
+  }
+  .axis-label,
+  .chart-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    fill: var(--ink-dim);
+    text-transform: uppercase;
+  }
+  .chart-num { font-size: 11px; fill: var(--ink); letter-spacing: 0.04em; }
+  .annotation {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 14px;
+    fill: var(--ink);
+  }
+  .annotation-mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    fill: var(--ink-dim);
+    text-transform: uppercase;
+  }
+
+  /* --- Sparklines under stat reel --- */
+  .stat-spark {
+    margin-top: 22px;
+    height: 48px;
+    width: 100%;
+    display: block;
+    overflow: visible;
+  }
+  .stat-spark .bar {
+    fill: var(--ink-faint);
+    transform-box: fill-box;
+    transform-origin: bottom center;
+    transform: scaleY(0);
+    transition: transform 0.7s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .stat-spark .bar.hot { fill: var(--accent-orange); }
+  .stat-spark .bar.dim { fill: rgba(244,241,234,0.32); }
+  .stat-spark.in-view .bar { transform: scaleY(1); }
+  .stat-spark .bar:nth-child(1) { transition-delay: 0.0s; }
+  .stat-spark .bar:nth-child(2) { transition-delay: 0.06s; }
+  .stat-spark .bar:nth-child(3) { transition-delay: 0.12s; }
+  .stat-spark .bar:nth-child(4) { transition-delay: 0.18s; }
+  .stat-spark .bar:nth-child(5) { transition-delay: 0.24s; }
+  .stat-spark .bar:nth-child(6) { transition-delay: 0.30s; }
+  .stat-spark .bar:nth-child(7) { transition-delay: 0.36s; }
+  .stat-spark .bar:nth-child(8) { transition-delay: 0.42s; }
+  .stat-spark .funnel {
+    stroke: var(--accent-orange);
+    stroke-width: 1.6;
+    fill: none;
+    stroke-dasharray: 600;
+    stroke-dashoffset: 600;
+    transition: stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .stat-spark.in-view .funnel { stroke-dashoffset: 0; }
+  .stat-spark .dot {
+    r: 2.5;
+    fill: var(--accent-orange);
+    opacity: 0;
+    transition: opacity 0.4s ease 0.9s;
+  }
+  .stat-spark.in-view .dot { opacity: 1; }
+  .stat-spark .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    fill: var(--ink-dim);
+    text-transform: uppercase;
+  }
+  .stat-spark-axis {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    margin-top: 6px;
+    max-width: 100%;
+  }
+  .stat-spark-callout {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--ink-dim);
+    margin-top: 8px;
+    line-height: 1.4;
+  }
+  .stat-spark-callout em {
+    color: var(--accent-orange);
+    font-style: normal;
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: 0.1em;
+    margin-right: 4px;
+  }
+
+  /* --- Chart 9 — Title distribution --- */
+  .titles-block {
+    padding-top: 16vh;
+    padding-bottom: 6vh;
+  }
+  .title-bars {
+    max-width: 1100px;
+    margin-top: 4vh;
+  }
+  .title-bars .tb-row {
+    display: grid;
+    grid-template-columns: 220px 1fr 60px;
+    column-gap: 24px;
+    align-items: center;
+    padding: 8px 0;
+  }
+  .title-bars .tb-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 18px;
+    letter-spacing: 0.18em;
+    color: var(--ink);
+    text-transform: uppercase;
+  }
+  .title-bars .tb-rail {
+    height: 18px;
+    background: rgba(244,241,234,0.06);
+    position: relative;
+    overflow: hidden;
+  }
+  .title-bars .tb-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent-orange), #c4400c);
+    transition: width 1.4s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .title-bars.in-view .tb-fill { width: var(--target-w, 0%); }
+  .title-bars .tb-fill.dim {
+    background: linear-gradient(90deg, rgba(244,241,234,0.55), rgba(244,241,234,0.18));
+  }
+  .title-bars .tb-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    color: var(--ink);
+    text-align: right;
+  }
+  .title-bars .tb-row.dynasty .tb-name { color: var(--accent-orange); }
+  .title-bars .tb-callout {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    color: var(--ink-dim);
+    font-size: 14px;
+    line-height: 1.55;
+    margin-top: 22px;
+    border-top: 1px solid var(--chart-grid);
+    padding-top: 16px;
+    max-width: 70ch;
+  }
+  @media (max-width: 760px) {
+    .title-bars .tb-row { grid-template-columns: 130px 1fr 40px; column-gap: 12px; }
+    .title-bars .tb-name { font-size: 13px; letter-spacing: 0.12em; }
+    .title-bars .tb-num  { font-size: 12px; }
+  }
+
+  /* --- Chart 03 — Shot chart on half-court SVG --- */
+  .shot-block {
+    padding-top: 16vh;
+    padding-bottom: 8vh;
+  }
+  .shot-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 5vw;
+    align-items: center;
+    margin-top: 4vh;
+    max-width: 1200px;
+  }
+  .court-wrap {
+    background: linear-gradient(180deg, rgba(122,84,48,0.18) 0%, rgba(122,84,48,0.08) 100%);
+    border: 1px solid rgba(199,155,106,0.2);
+    padding: 24px;
+    position: relative;
+  }
+  .court-wrap::before {
+    content: "TOPDOWN · HALF COURT";
+    position: absolute;
+    top: 10px; left: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.32em;
+    color: var(--ink-dim);
+  }
+  .shot-chart {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .shot-chart .court-floor { fill: rgba(199,155,106,0.06); }
+  .shot-chart .court-line  { stroke: rgba(244,241,234,0.35); fill: none; stroke-width: 1.5; }
+  .shot-chart .court-line-bold { stroke: rgba(244,241,234,0.55); fill: none; stroke-width: 2; }
+  .shot-chart .rim { fill: var(--accent-orange); }
+  .shot-chart .backboard { stroke: var(--ink); stroke-width: 3; }
+  .shot-chart .zone {
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: scale(0);
+    transition: transform 0.7s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.7s;
+    opacity: 0.85;
+  }
+  .shot-block.in-view .shot-chart .zone { transform: scale(1); }
+  .shot-chart .zone.hot   { fill: var(--accent-orange); }
+  .shot-chart .zone.warm  { fill: #c4400c; }
+  .shot-chart .zone.cool  { fill: var(--accent-blue); opacity: 0.45; }
+  .shot-chart .zone.cold  { fill: rgba(244,241,234,0.18); }
+  .shot-chart .pct-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    fill: var(--ink);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-anchor: middle;
+    dominant-baseline: central;
+    opacity: 0;
+    transition: opacity 0.5s ease 0.6s;
+  }
+  .shot-block.in-view .shot-chart .pct-label { opacity: 1; }
+  .shot-legend {
+    list-style: none;
+    margin-top: 24px;
+    padding: 0;
+  }
+  .shot-legend li {
+    display: grid;
+    grid-template-columns: 14px 1fr auto auto;
+    gap: 12px;
+    align-items: baseline;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--chart-grid);
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .shot-legend .swatch {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    transform: translateY(2px);
+  }
+  .shot-legend .name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 14px;
+    letter-spacing: 0.15em;
+    color: var(--ink);
+  }
+  .shot-legend .att {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-dim);
+  }
+  .shot-legend .pct {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .shot-legend .pct.up   { color: var(--accent-orange); }
+  .shot-legend .pct.down { color: var(--ink-dim); }
+  .shot-legend .pct::before { content: ""; }
+  .shot-takeaway {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: clamp(18px, 2vw, 24px);
+    line-height: 1.4;
+    color: var(--ink);
+    margin-top: 32px;
+    padding-top: 20px;
+    border-top: 1px solid var(--ink-faint);
+  }
+  .shot-takeaway em {
+    font-style: normal;
+    font-family: 'Bebas Neue', sans-serif;
+    color: var(--accent-orange);
+    letter-spacing: 0.08em;
+    font-size: 0.85em;
+    margin: 0 4px;
+  }
+  @media (max-width: 900px) {
+    .shot-grid { grid-template-columns: 1fr; gap: 30px; }
+  }
+
+  /* --- Chart 02 — Playoff Bracket (full-bleed pinned) --- */
+  .bracket-block {
+    padding-top: 14vh;
+    padding-bottom: 14vh;
+    overflow: hidden;
+  }
+  .bracket-shell {
+    margin-top: 6vh;
+    padding: 30px 0 0;
+  }
+  .bracket-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-bottom: 36px;
+    border-top: 1px solid var(--ink-faint);
+    border-bottom: 1px solid var(--ink-faint);
+    padding: 14px 0;
+  }
+  .bracket-meta .mk {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-dim);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+  .bracket-meta .mk strong {
+    color: var(--ink);
+    font-family: 'Bebas Neue', sans-serif;
+    font-weight: 400;
+    letter-spacing: 0.18em;
+    margin-right: 6px;
+  }
+  .bracket-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .bracket-svg .conn {
+    stroke: rgba(244,241,234,0.18);
+    fill: none;
+    stroke-width: 1;
+    stroke-dasharray: 2000;
+    stroke-dashoffset: 2000;
+    transition: stroke-dashoffset 1.4s ease 0.2s;
+  }
+  .bracket-block.in-view .bracket-svg .conn { stroke-dashoffset: 0; }
+  .bracket-svg .conn.win {
+    stroke: var(--accent-orange);
+    stroke-width: 1.5;
+  }
+  /* Note: cannot animate transform here — would override the SVG transform="translate(...)"
+     positioning attribute. Opacity-only entry, sequenced via inline transition-delay. */
+  .bracket-svg .matchup {
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  .bracket-block.in-view .bracket-svg .matchup { opacity: 1; }
+  .bracket-svg .mu-bg {
+    fill: rgba(7,8,10,0.85);
+    stroke: rgba(244,241,234,0.16);
+    stroke-width: 1;
+  }
+  .bracket-svg .mu-bg.win-box {
+    stroke: var(--accent-orange);
+    stroke-width: 1.5;
+  }
+  .bracket-svg .mu-divider {
+    stroke: rgba(244,241,234,0.1);
+    stroke-width: 1;
+  }
+  .bracket-svg .mu-team {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 14px;
+    fill: var(--ink-dim);
+    letter-spacing: 0.15em;
+    dominant-baseline: middle;
+  }
+  .bracket-svg .mu-team.winner { fill: var(--ink); }
+  .bracket-svg .mu-seed {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    fill: var(--ink-dim);
+    letter-spacing: 0.1em;
+    dominant-baseline: middle;
+  }
+  .bracket-svg .mu-seed.winner-seed { fill: var(--accent-orange); }
+  .bracket-svg .mu-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    fill: var(--accent-orange);
+    letter-spacing: 0.04em;
+    text-anchor: end;
+    dominant-baseline: middle;
+  }
+  .bracket-svg .round-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    fill: var(--ink-dim);
+    letter-spacing: 0.32em;
+    text-anchor: middle;
+  }
+  .bracket-svg .conf-tag {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 28px;
+    fill: var(--ink);
+    text-anchor: middle;
+    opacity: 0.4;
+    letter-spacing: 0.04em;
+  }
+  .bracket-svg .champ-crown {
+    fill: var(--accent-orange);
+    opacity: 0;
+    transition: opacity 0.6s ease 1.4s;
+  }
+  .bracket-block.in-view .bracket-svg .champ-crown { opacity: 1; }
+  .bracket-block .chart-source { margin-top: 32px; }
+  @media (max-width: 760px) {
+    .bracket-block { overflow: visible; }
+    .bracket-shell { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 12px; }
+    .bracket-svg   { min-width: 760px; }
+  }
+
+  /* --- Custom cursor ring (polish moment 1) --- */
+  .cursor-ring {
+    position: fixed;
+    top: 0; left: 0;
+    width: 22px; height: 22px;
+    border: 1.5px solid var(--accent-orange);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 50;
+    transform: translate3d(-100px, -100px, 0);
+    transition: width 0.18s ease, height 0.18s ease, background 0.18s ease, opacity 0.3s ease;
+    mix-blend-mode: difference;
+    opacity: 0;
+    will-change: transform;
+  }
+  .cursor-ring.visible { opacity: 1; }
+  .cursor-ring.over    { width: 44px; height: 44px; background: rgba(255,94,26,0.16); margin-left: -11px; margin-top: -11px; }
+  .cursor-ring.dragging { width: 16px; height: 16px; background: var(--accent-orange); margin-left: 3px; margin-top: 3px; }
+  body.cursor-hidden { cursor: none; }
+  body.cursor-hidden a,
+  body.cursor-hidden button,
+  body.cursor-hidden .moment,
+  body.cursor-hidden [data-cursor-hover],
+  body.cursor-hidden.is-trophy-active { cursor: none; }
+
+  /* --- Kicker microcopy (polish moment 2) — chapter cards under each scene --- */
+  .scene { position: relative; }
+  .kicker {
+    position: absolute;
+    bottom: 5vh;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.36em;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    pointer-events: none;
+    text-align: center;
+    white-space: nowrap;
+    transition: opacity 0.6s ease;
+    z-index: 5;
+  }
+  .kicker .num {
+    color: var(--accent-orange);
+    margin-right: 14px;
+    font-weight: 500;
+  }
+  .kicker .sep { opacity: 0.4; margin: 0 10px; }
+  @media (max-width: 720px) {
+    .kicker { font-size: 9px; letter-spacing: 0.28em; bottom: 7vh; }
+  }
+
+  /* --- Audio toggle (silent by default) --- */
+  .audio-toggle {
+    position: fixed;
+    top: 26px; right: 36px;
+    z-index: 12;
+    background: transparent;
+    border: 1px solid rgba(244,241,234,0.18);
+    color: var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.42em;
+    padding: 9px 14px 9px 30px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.3s, color 0.3s, background 0.3s;
+  }
+  .audio-toggle:hover {
+    border-color: rgba(244,241,234,0.4);
+    background: rgba(244,241,234,0.04);
+  }
+  .audio-toggle .ind {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    width: 6px; height: 6px;
+    transform: translateY(-50%);
+    border-radius: 50%;
+    background: rgba(244,241,234,0.2);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .audio-toggle.on { border-color: var(--accent-orange); color: var(--accent-orange); }
+  .audio-toggle.on .ind { background: var(--accent-orange); box-shadow: 0 0 10px var(--accent-orange); }
+  @media (max-width: 720px) {
+    .audio-toggle { top: 16px; right: 16px; padding: 7px 11px 7px 24px; font-size: 9px; letter-spacing: 0.32em; }
+  }
+
+  /* --- Chart 04 — Finals margin-of-victory line chart --- */
+  .margin-block { padding-top: 14vh; padding-bottom: 6vh; }
+  .margin-svg-wrap {
+    margin-top: 4vh;
+    background: rgba(244,241,234,0.015);
+    border: 1px solid var(--chart-grid);
+    padding: 32px 24px 18px;
+    max-width: 1100px;
+  }
+  .margin-svg { width: 100%; height: auto; display: block; }
+  .margin-svg .grid-line { stroke: var(--chart-grid); stroke-dasharray: 2 4; }
+  .margin-svg .axis      { stroke: var(--chart-axis); stroke-width: 1; }
+  .margin-svg .area {
+    fill: var(--accent-orange);
+    fill-opacity: 0;
+    transition: fill-opacity 1.2s ease 0.6s;
+  }
+  .margin-block.in-view .margin-svg .area { fill-opacity: 0.1; }
+  .margin-svg .line {
+    fill: none;
+    stroke: var(--accent-orange);
+    stroke-width: 2;
+    stroke-dasharray: 3000;
+    stroke-dashoffset: 3000;
+    transition: stroke-dashoffset 2.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .margin-block.in-view .margin-svg .line { stroke-dashoffset: 0; }
+  .margin-svg .point { fill: var(--accent-orange); opacity: 0; transition: opacity 0.5s ease 1.4s; }
+  .margin-block.in-view .margin-svg .point { opacity: 1; }
+  .margin-svg .anno-line { stroke: rgba(244,241,234,0.18); stroke-width: 1; }
+  .margin-svg .anno-text {
+    fill: var(--ink);
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 13px;
+  }
+  .margin-svg .anno-mono {
+    fill: var(--accent-orange);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+  .margin-svg .axis-text {
+    fill: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+  }
+
+  /* --- Chart 05 — Era radar (small multiples) --- */
+  .eras-block { padding-top: 12vh; padding-bottom: 6vh; }
+  .eras-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3vw;
+    margin-top: 4vh;
+    max-width: 1200px;
+  }
+  .era-card { text-align: center; }
+  .era-radar { width: 100%; height: auto; display: block; max-width: 220px; margin: 0 auto; }
+  .era-radar .axis-line { stroke: var(--chart-grid); stroke-width: 1; }
+  .era-radar .axis-label {
+    fill: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    text-anchor: middle;
+  }
+  .era-radar .grid-poly { fill: none; stroke: var(--chart-grid); stroke-width: 0.6; }
+  .era-radar .data-poly {
+    fill: var(--accent-orange);
+    fill-opacity: 0.18;
+    stroke: var(--accent-orange);
+    stroke-width: 1.4;
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: scale(0);
+    transition: transform 0.9s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .eras-block.in-view .era-radar .data-poly { transform: scale(1); }
+  .era-card .era-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 18px;
+    letter-spacing: 0.2em;
+    color: var(--ink);
+    margin-top: 18px;
+    text-transform: uppercase;
+  }
+  .era-card .era-years {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.32em;
+    color: var(--accent-orange);
+    margin-top: 6px;
+  }
+  .era-card .era-key {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--ink-dim);
+    margin-top: 12px;
+    line-height: 1.45;
+    max-width: 22ch;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  @media (max-width: 760px) {
+    .eras-grid { grid-template-columns: repeat(2, 1fr); gap: 6vw; }
+  }
+
+  /* --- Chart 06 — Decade trio (small multiples line) --- */
+  .decade-block { padding-top: 12vh; padding-bottom: 6vh; }
+  .decade-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2.5vw;
+    margin-top: 4vh;
+    max-width: 1200px;
+  }
+  .decade-card {
+    background: rgba(244,241,234,0.02);
+    border: 1px solid var(--chart-grid);
+    padding: 26px 24px 22px;
+  }
+  .dec-eyebrow {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.34em;
+    color: var(--accent-orange);
+  }
+  .dec-headline {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 36px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin: 6px 0 4px;
+    line-height: 1;
+  }
+  .dec-delta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-dim);
+    letter-spacing: 0.18em;
+    margin-bottom: 22px;
+    text-transform: uppercase;
+  }
+  .dec-delta.up   { color: var(--accent-orange); }
+  .dec-delta.down { color: var(--accent-blue); }
+  .dec-svg { width: 100%; height: 110px; display: block; }
+  .dec-svg .grid-line { stroke: var(--chart-grid); stroke-dasharray: 2 4; }
+  .dec-svg .line {
+    fill: none;
+    stroke: var(--accent-orange);
+    stroke-width: 2;
+    stroke-dasharray: 800;
+    stroke-dashoffset: 800;
+    transition: stroke-dashoffset 1.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .decade-block.in-view .dec-svg .line { stroke-dashoffset: 0; }
+  .dec-svg .area {
+    fill: var(--accent-orange);
+    fill-opacity: 0;
+    transition: fill-opacity 0.8s ease 0.6s;
+  }
+  .decade-block.in-view .dec-svg .area { fill-opacity: 0.10; }
+  .dec-svg .point {
+    fill: var(--accent-orange);
+    opacity: 0;
+    transition: opacity 0.5s ease 1.2s;
+  }
+  .decade-block.in-view .dec-svg .point { opacity: 1; }
+  .dec-foot {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-dim);
+    letter-spacing: 0.22em;
+    margin-top: 14px;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+  }
+  @media (max-width: 760px) {
+    .decade-grid { grid-template-columns: 1fr; gap: 4vh; }
+    .dec-headline { font-size: 28px; }
+  }
+
+  /* --- Chart 08 — Round arcs (concentric ring chart) --- */
+  .rounds-block { padding-top: 12vh; padding-bottom: 6vh; }
+  .rounds-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5vw;
+    align-items: center;
+    margin-top: 4vh;
+    max-width: 1100px;
+  }
+  .rounds-svg-wrap { display: flex; justify-content: center; }
+  .rounds-svg { width: 100%; height: auto; display: block; max-width: 460px; }
+  .rounds-svg .ring-bg { fill: none; stroke: rgba(244,241,234,0.06); }
+  .rounds-svg .ring {
+    fill: none;
+    stroke: var(--accent-orange);
+    stroke-linecap: round;
+    stroke-dasharray: var(--ring-circ, 1000);
+    stroke-dashoffset: var(--ring-circ, 1000);
+    transition: stroke-dashoffset 1.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .rounds-block.in-view .rounds-svg .ring { stroke-dashoffset: var(--ring-target, 0); }
+  .rounds-svg .center-num {
+    fill: var(--accent-orange);
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 56px;
+    text-anchor: middle;
+    dominant-baseline: central;
+    letter-spacing: -0.01em;
+  }
+  .rounds-svg .center-label {
+    fill: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.32em;
+    text-anchor: middle;
+    text-transform: uppercase;
+  }
+  .rounds-legend { list-style: none; padding: 0; }
+  .rounds-legend li {
+    display: grid;
+    grid-template-columns: 30px 1fr auto;
+    gap: 14px;
+    align-items: baseline;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--chart-grid);
+  }
+  .rounds-legend .rl-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 18px;
+    color: var(--accent-orange);
+    letter-spacing: 0.06em;
+  }
+  .rounds-legend .rl-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 14px;
+    color: var(--ink);
+    letter-spacing: 0.18em;
+  }
+  .rounds-legend .rl-pct {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--ink);
+    letter-spacing: 0.04em;
+  }
+  @media (max-width: 760px) {
+    .rounds-grid { grid-template-columns: 1fr; gap: 5vh; }
+  }
+
+  /* --- Chart 10 — Title treemap --- */
+  .treemap-block { padding-top: 12vh; padding-bottom: 6vh; }
+  .treemap {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-auto-rows: 84px;
+    grid-auto-flow: dense;
+    gap: 6px;
+    margin-top: 4vh;
+    max-width: 1180px;
+  }
+  .tile {
+    position: relative;
+    background: rgba(244,241,234,0.04);
+    border: 1px solid rgba(244,241,234,0.08);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .treemap-block.in-view .tile { opacity: 1; transform: translateY(0); }
+  .tile.t-mega {
+    background: linear-gradient(135deg, var(--accent-orange) 0%, #c4400c 100%);
+    border-color: var(--accent-orange);
+  }
+  .tile.t-mega .tile-name,
+  .tile.t-mega .tile-num,
+  .tile.t-mega .tile-meta { color: var(--bg); }
+  .tile.t-large {
+    background: linear-gradient(135deg, rgba(255,94,26,0.42), rgba(255,94,26,0.16));
+    border-color: rgba(255,94,26,0.4);
+  }
+  .tile.t-mid {
+    background: rgba(255,94,26,0.13);
+    border-color: rgba(255,94,26,0.22);
+  }
+  .tile-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(12px, 1.2vw, 18px);
+    letter-spacing: 0.1em;
+    color: var(--ink);
+    text-transform: uppercase;
+    line-height: 1.05;
+  }
+  .tile-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(26px, 2.6vw, 48px);
+    color: var(--ink);
+    line-height: 1;
+  }
+  .tile-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+  }
+  @media (max-width: 760px) {
+    .treemap { grid-template-columns: repeat(6, 1fr); grid-auto-rows: 64px; }
+    .tile-num { font-size: 22px; }
+    .tile-name { font-size: 10px; }
+  }
+
+  /* --- Chart 12 — Drought timeline --- */
+  .drought-block { padding-top: 12vh; padding-bottom: 8vh; }
+  .drought-rows {
+    margin-top: 4vh;
+    border-top: 1px solid var(--ink-faint);
+    max-width: 1100px;
+  }
+  .drought-row {
+    display: grid;
+    grid-template-columns: 200px 1fr 140px;
+    align-items: center;
+    gap: 24px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--chart-grid);
+  }
+  .drought-row .dr-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 16px;
+    letter-spacing: 0.16em;
+    color: var(--ink);
+    text-transform: uppercase;
+  }
+  .drought-row .dr-track {
+    position: relative;
+    height: 18px;
+    background: rgba(244,241,234,0.04);
+    border-left: 1px solid var(--ink-faint);
+    border-right: 1px solid var(--ink-faint);
+  }
+  .drought-row .dr-tick {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 2px;
+    background: var(--accent-orange);
+    transform: scaleY(0);
+    transform-origin: bottom center;
+    transition: transform 0.3s ease;
+  }
+  .drought-block.in-view .drought-row .dr-tick { transform: scaleY(1); }
+  .drought-row .dr-current {
+    position: absolute;
+    top: 0; bottom: 0;
+    background: rgba(58,120,255,0.10);
+    border-right: 1px dashed rgba(58,120,255,0.4);
+    pointer-events: none;
+  }
+  .drought-row .dr-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-dim);
+    letter-spacing: 0.1em;
+    text-align: right;
+  }
+  .drought-row .dr-meta strong {
+    color: var(--accent-orange);
+    font-weight: 500;
+    margin-right: 4px;
+  }
+  .drought-axis {
+    display: grid;
+    grid-template-columns: 200px 1fr 140px;
+    gap: 24px;
+    margin-top: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--ink-dim);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+  .drought-axis .ax-track {
+    display: flex;
+    justify-content: space-between;
+  }
+  @media (max-width: 760px) {
+    .drought-row { grid-template-columns: 90px 1fr 80px; gap: 10px; }
+    .drought-row .dr-name { font-size: 11px; letter-spacing: 0.08em; }
+    .drought-row .dr-meta { font-size: 9px; letter-spacing: 0.06em; }
+    .drought-axis { grid-template-columns: 90px 1fr 80px; gap: 10px; }
+  }
+
+  /* --- Section 05.5 — MOMENTS (horizontal pinned scroll) --- */
+  .moments-block {
+    position: relative;
+    height: 100vh;
+    overflow: hidden;
+    padding: 0;
+    background: #0a0a0c;
+  }
+  .moments-header {
+    position: absolute;
+    top: 8vh; left: 8vw;
+    z-index: 4;
+    pointer-events: none;
+    max-width: 40vw;
+  }
+  .moments-header .section-tag { color: var(--accent-orange); }
+  .moments-header .block-title { margin-bottom: 0; }
+  .moments-counter {
+    position: absolute;
+    top: 8vh; right: 8vw;
+    z-index: 4;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.36em;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+  }
+  .moments-counter strong {
+    color: var(--accent-orange);
+    font-weight: 500;
+    margin-right: 6px;
+  }
+  .moments-cue {
+    position: absolute;
+    bottom: 6vh; left: 50%;
+    transform: translateX(-50%);
+    z-index: 4;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.42em;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    transition: opacity 0.5s ease;
+  }
+  .moments-cue::before {
+    content: "→  ";
+    color: var(--accent-orange);
+    margin-right: 4px;
+  }
+  .moments-track {
+    display: flex;
+    height: 100%;
+    width: max-content;
+    align-items: center;
+    padding: 0 14vw 0 8vw;
+    will-change: transform;
+  }
+  .moment {
+    flex: 0 0 auto;
+    width: 64vw;
+    max-width: 920px;
+    height: 70vh;
+    margin-right: 5vw;
+    position: relative;
+    background: #16181c;
+    overflow: hidden;
+    box-shadow: 0 24px 60px -20px rgba(0,0,0,0.7);
+  }
+  .moment img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: grayscale(0.42) sepia(0.18) brightness(0.88) contrast(1.05);
+    transform: scale(1.02);
+    transition: transform 1.2s ease;
+  }
+  .moment::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(135deg, rgba(255,94,26,0.05), rgba(58,120,255,0.04)),
+      linear-gradient(to bottom, transparent 50%, rgba(7,8,10,0.85) 100%);
+    pointer-events: none;
+  }
+  .moment-meta {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 32px 40px 36px;
+    color: var(--ink);
+    z-index: 2;
+  }
+  .moment-year {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(54px, 5.6vw, 92px);
+    letter-spacing: 0.04em;
+    line-height: 1;
+    margin-bottom: 12px;
+    color: var(--ink);
+  }
+  .moment-caption {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: clamp(18px, 1.6vw, 26px);
+    line-height: 1.35;
+    color: var(--ink);
+    margin-bottom: 16px;
+    max-width: 38ch;
+  }
+  .moment-stat {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.34em;
+    color: var(--accent-orange);
+    text-transform: uppercase;
+  }
+  .moment-stat::before {
+    content: "■";
+    color: var(--accent-orange);
+    margin-right: 10px;
+    font-size: 10px;
+    transform: translateY(-1px);
+    display: inline-block;
+  }
+  .moment-index {
+    position: absolute;
+    top: 22px; left: 28px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink);
+    letter-spacing: 0.4em;
+    z-index: 2;
+    background: rgba(7,8,10,0.7);
+    padding: 8px 14px;
+    border: 1px solid rgba(244,241,234,0.2);
+  }
+  @media (max-width: 760px) {
+    .moments-header { max-width: 90vw; top: 6vh; }
+    .moments-counter { display: none; }
+    .moment { width: 80vw; height: 60vh; }
+    .moments-track { padding: 0 12vw 0 6vw; }
+  }
+
+  /* --- Chart 11 — Per-row series sparkline in champions list --- */
+  .champ-list .series-spark {
+    display: inline-flex;
+    gap: 3px;
+    margin-left: 14px;
+    vertical-align: middle;
+    transform: translateY(-2px);
+  }
+  .champ-list .series-spark .cell {
+    width: 7px; height: 14px;
+    background: rgba(244,241,234,0.18);
+    transform-origin: bottom center;
+    transform: scaleY(0);
+    transition: transform 0.35s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .champ-list .series-spark .cell.w { background: var(--accent-orange); }
+  .champ-list li.in-view .series-spark .cell { transform: scaleY(1); }
+  .champ-list li.in-view .series-spark .cell.delay-1 { transition-delay: 0.06s; }
+  .champ-list li.in-view .series-spark .cell.delay-2 { transition-delay: 0.12s; }
+  .champ-list li.in-view .series-spark .cell.delay-3 { transition-delay: 0.18s; }
+  .champ-list li.in-view .series-spark .cell.delay-4 { transition-delay: 0.24s; }
+  .champ-list li.in-view .series-spark .cell.delay-5 { transition-delay: 0.30s; }
+  .champ-list li.in-view .series-spark .cell.delay-6 { transition-delay: 0.36s; }
+  @media (max-width: 760px) {
+    .champ-list .series-spark { display: none; }
+  }
+</style>
+</head>
+
+<body>
+  <!-- Persistent 3D layer -->
+  <canvas id="webgl"></canvas>
+  <div class="void-overlay"></div>
+
+  <!-- Fixed UI chrome -->
+  <div class="scroll-progress" id="scrollProgress"></div>
+  <div class="brand">THE CHASE / 2026</div>
+  <div class="scroll-hint" id="scrollHint">SCROLL</div>
+  <button class="audio-toggle" id="audioToggle" type="button" aria-pressed="false">
+    <span class="ind"></span>
+    <span class="lbl">AUDIO OFF</span>
+  </button>
+
+  <!-- Scrollable narrative -->
+  <main class="scroll-content">
+
+    <!-- SCENE 1: THE TIP-OFF -->
+    <section class="scene scene-1" data-scene="1">
+      <div class="copy">
+        <h1 class="display">
+          The<br>Chase
+          <span>Sixteen wins. One trophy. Zero excuses.</span>
+        </h1>
+      </div>
+      <span class="kicker"><span class="num">01</span>The Ball<span class="sep">·</span>Where every chase begins</span>
+    </section>
+
+    <!-- 02 — STATS REEL (between basketball and player transitions) -->
+    <section class="content-block stats-reel">
+      <span class="section-tag">— 02 / By the Numbers</span>
+      <h2 class="block-title">The math<br>of immortality.</h2>
+      <div class="stats-grid">
+        <!-- 76 — years of the Finals -->
+        <div class="stat" data-target="76">
+          <div class="stat-value"><span class="num">0</span><span class="stat-suffix">YR</span></div>
+          <div class="stat-label">Years of the Finals — since the league's first title in 1947</div>
+          <!-- Sparkline 1: unique champion franchises per decade -->
+          <svg class="stat-spark" viewBox="0 0 240 40" preserveAspectRatio="none" aria-hidden="true">
+            <rect class="bar"     x="0"   y="20" width="22" height="20"></rect>
+            <rect class="bar"     x="30"  y="30" width="22" height="10"></rect>
+            <rect class="bar hot" x="60"  y="0"  width="22" height="40"></rect>
+            <rect class="bar"     x="90"  y="20" width="22" height="20"></rect>
+            <rect class="bar"     x="120" y="25" width="22" height="15"></rect>
+            <rect class="bar"     x="150" y="15" width="22" height="25"></rect>
+            <rect class="bar"     x="180" y="15" width="22" height="25"></rect>
+            <rect class="bar"     x="210" y="10" width="22" height="30"></rect>
+          </svg>
+          <div class="stat-spark-axis"><span>'50s</span><span>'80s</span><span>'20s</span></div>
+          <div class="stat-spark-callout"><em>'70s</em>peak parity — 8 different champions in 10 years</div>
+        </div>
+
+        <!-- 30 — franchises -->
+        <div class="stat" data-target="30">
+          <div class="stat-value"><span class="num">0</span></div>
+          <div class="stat-label">Franchises in the hunt — only one finishes the season as the last team standing</div>
+          <!-- Sparkline 2: playoff cull funnel — 30 → 16 → 8 → 4 → 2 → 1 -->
+          <svg class="stat-spark" viewBox="0 0 240 40" preserveAspectRatio="none" aria-hidden="true">
+            <path class="funnel" d="M 0 4 L 48 12 L 96 22 L 144 28 L 192 33 L 240 36"></path>
+            <circle class="dot" cx="0"   cy="4"  r="2.5"></circle>
+            <circle class="dot" cx="48"  cy="12" r="2.5"></circle>
+            <circle class="dot" cx="96"  cy="22" r="2.5"></circle>
+            <circle class="dot" cx="144" cy="28" r="2.5"></circle>
+            <circle class="dot" cx="192" cy="33" r="2.5"></circle>
+            <circle class="dot" cx="240" cy="36" r="3.5" style="fill: var(--accent-orange);"></circle>
+          </svg>
+          <div class="stat-spark-axis"><span>30 START</span><span>4 CONF</span><span>1 CHAMP</span></div>
+          <div class="stat-spark-callout"><em>3.3%</em>of franchises lift the trophy in any given year</div>
+        </div>
+
+        <!-- 16 — wins -->
+        <div class="stat" data-target="16">
+          <div class="stat-value"><span class="num">0</span></div>
+          <div class="stat-label">Wins required in the playoffs — four series, no shortcuts</div>
+          <!-- Sparkline 3: 4 series × 4 wins -->
+          <svg class="stat-spark" viewBox="0 0 240 40" preserveAspectRatio="none" aria-hidden="true">
+            <!-- 4 series rows, each 4 cells (wins) — staircase ascending -->
+            <rect class="bar hot" x="0"   y="28" width="48" height="12"></rect>
+            <rect class="bar hot" x="60"  y="20" width="48" height="20"></rect>
+            <rect class="bar hot" x="120" y="12" width="48" height="28"></rect>
+            <rect class="bar hot" x="180" y="0"  width="48" height="40"></rect>
+          </svg>
+          <div class="stat-spark-axis"><span>R1</span><span>SEMI</span><span>CONF</span><span>FIN</span></div>
+          <div class="stat-spark-callout"><em>4×4</em>four series, four wins each — zero margin for error</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCENE 2: THE CONTENDER -->
+    <section class="scene scene-2" data-scene="2">
+      <div class="copy">
+        <span class="eyebrow">03 — The Contender</span>
+        <h2 class="display">Proven<br>Under<br>Pressure.</h2>
+        <p class="body-copy">
+          Every possession is a question. The answer comes
+          in fourth-quarter silence — when the gym disappears
+          and there's only the rim, the lights, and the will
+          to take the shot nobody else wants.
+        </p>
+      </div>
+      <span class="kicker"><span class="num">02</span>The Contender<span class="sep">·</span>Built in fourth quarters</span>
+    </section>
+
+    <!-- 03.5 — SHOT CHART (Chart 03) — paired with the Contender -->
+    <section class="content-block shot-block" id="shotBlock">
+      <span class="section-tag">— 03.5 / Anatomy of an Attack</span>
+      <h2 class="block-title">Where the<br>game is won.</h2>
+      <p class="chart-subhed">
+        Modern offense is a geometry problem. Live at the rim. Live at the line.
+        Everything else is <em>negotiation</em>.
+      </p>
+      <div class="shot-grid">
+        <!-- Court -->
+        <div class="court-wrap">
+          <svg class="shot-chart" viewBox="0 0 500 470" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <!-- Floor -->
+            <rect class="court-floor" x="0" y="0" width="500" height="470"></rect>
+
+            <!-- Outline -->
+            <rect class="court-line-bold" x="0" y="0" width="500" height="470"></rect>
+
+            <!-- Half-court line -->
+            <line class="court-line" x1="0" y1="470" x2="500" y2="470"></line>
+            <circle class="court-line" cx="250" cy="470" r="60" fill="none"></circle>
+
+            <!-- Paint -->
+            <rect class="court-line" x="170" y="0" width="160" height="190"></rect>
+            <!-- Free-throw circle -->
+            <path class="court-line" d="M 190 190 A 60 60 0 0 0 310 190"></path>
+            <path class="court-line" stroke-dasharray="6 6" d="M 190 190 A 60 60 0 0 1 310 190"></path>
+
+            <!-- Three-point line: corners + arc -->
+            <line class="court-line-bold" x1="40"  y1="0" x2="40"  y2="120"></line>
+            <line class="court-line-bold" x1="460" y1="0" x2="460" y2="120"></line>
+            <path class="court-line-bold" d="M 40 120 A 240 240 0 0 1 460 120"></path>
+
+            <!-- Restricted area arc (4ft from rim) -->
+            <path class="court-line" d="M 210 50 A 40 40 0 0 1 290 50" fill="none"></path>
+
+            <!-- Backboard + Rim -->
+            <line class="backboard" x1="220" y1="40" x2="280" y2="40"></line>
+            <circle class="rim" cx="250" cy="50" r="9"></circle>
+
+            <!-- HOT ZONES -->
+            <g class="zones">
+              <!-- Rim attack -->
+              <circle class="zone hot"  cx="250" cy="80"  r="44"></circle>
+              <!-- Top of key 3 -->
+              <circle class="zone warm" cx="250" cy="270" r="40"></circle>
+              <!-- Wing 3 left/right -->
+              <circle class="zone warm" cx="110" cy="200" r="26"></circle>
+              <circle class="zone warm" cx="390" cy="200" r="26"></circle>
+              <!-- Corner 3 left/right -->
+              <circle class="zone hot"  cx="62"  cy="78"  r="28"></circle>
+              <circle class="zone hot"  cx="438" cy="78"  r="28"></circle>
+              <!-- Mid-range elbows (cool — under-used) -->
+              <circle class="zone cool" cx="170" cy="160" r="20"></circle>
+              <circle class="zone cool" cx="330" cy="160" r="20"></circle>
+              <!-- Foul line area -->
+              <circle class="zone cool" cx="250" cy="180" r="24"></circle>
+            </g>
+
+            <!-- Percentage labels (dominant-baseline:central handles vertical centering) -->
+            <text class="pct-label" x="250" y="80">68%</text>
+            <text class="pct-label" x="250" y="270">38%</text>
+            <text class="pct-label" x="110" y="200">36%</text>
+            <text class="pct-label" x="390" y="200">37%</text>
+            <text class="pct-label" x="62"  y="78">42%</text>
+            <text class="pct-label" x="438" y="78">41%</text>
+            <text class="pct-label" x="170" y="160">38%</text>
+            <text class="pct-label" x="330" y="160">41%</text>
+            <text class="pct-label" x="250" y="180">40%</text>
+          </svg>
+        </div>
+
+        <!-- Legend / readout -->
+        <div>
+          <ul class="shot-legend">
+            <li>
+              <span class="swatch" style="background: var(--accent-orange);"></span>
+              <span class="name">Rim Attack</span>
+              <span class="att">12.4 att/G</span>
+              <span class="pct up">68%</span>
+            </li>
+            <li>
+              <span class="swatch" style="background: var(--accent-orange);"></span>
+              <span class="name">Corner Three</span>
+              <span class="att">5.8 att/G</span>
+              <span class="pct up">42%</span>
+            </li>
+            <li>
+              <span class="swatch" style="background: #c4400c;"></span>
+              <span class="name">Three (Above Break)</span>
+              <span class="att">10.7 att/G</span>
+              <span class="pct">37%</span>
+            </li>
+            <li>
+              <span class="swatch" style="background: var(--accent-blue); opacity: 0.6;"></span>
+              <span class="name">Mid-Range</span>
+              <span class="att">3.1 att/G</span>
+              <span class="pct down">39%</span>
+            </li>
+            <li>
+              <span class="swatch" style="background: var(--ink); opacity: 0.6;"></span>
+              <span class="name">Free Throw</span>
+              <span class="att">7.2 att/G</span>
+              <span class="pct up">88%</span>
+            </li>
+          </ul>
+          <p class="shot-takeaway">
+            <em>Doctrine</em>shots near the rim and shots from the corner are gold.
+            The mid-range — a generation ago, the staple — has all but vanished from championship offense.
+          </p>
+        </div>
+      </div>
+      <div class="chart-source">Source · NBA Stats · league average shot composition (2024–25 regular season)</div>
+    </section>
+
+    <!-- 04 — DOCTRINE / PULL QUOTE (replaces old spacer) -->
+    <section class="content-block doctrine">
+      <div class="doctrine-inner">
+        <span class="section-tag">— 04 / Doctrine</span>
+        <blockquote class="big-quote">
+          <span class="mark">&ldquo;</span>The trophy doesn't reward the talented.
+          It rewards the ones who refused to leave the floor
+          when leaving was the easy thing to do.<span class="mark">&rdquo;</span>
+        </blockquote>
+        <cite class="attr">— A Champion's Creed</cite>
+      </div>
+    </section>
+
+    <!-- 04.2 — FINALS MARGIN OF VICTORY (Chart 04) -->
+    <section class="content-block margin-block" id="marginBlock">
+      <span class="section-tag">— 04.2 / The Margin</span>
+      <h2 class="block-title">How close<br>is close.</h2>
+      <p class="chart-subhed">
+        Average per-game margin in <em>every NBA finals</em> since 1980. The lower the line, the closer the series.
+        Below the dotted floor, the trophy was decided by a single possession.
+      </p>
+      <div class="margin-svg-wrap">
+        <svg class="margin-svg" id="marginSvg" viewBox="0 0 1080 360" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+      </div>
+      <div class="chart-source">Source · NBA · avg game margin in NBA Finals · 1980–2024</div>
+    </section>
+
+    <!-- 04.5 — THE BRACKET (Chart 02) — full-bleed pinned -->
+    <section class="content-block bracket-block" id="bracketBlock">
+      <span class="section-tag">— 04.5 / The Bracket</span>
+      <h2 class="block-title">Sixteen wins.<br>Four series.</h2>
+      <p class="chart-subhed">
+        From sixteen teams to one in <em>two months</em>. Every line on this
+        bracket is a season, a city, and a year of someone's life.
+      </p>
+      <div class="bracket-meta">
+        <span class="mk"><strong>POSTSEASON</strong>2023–24</span>
+        <span class="mk"><strong>TEAMS</strong>16</span>
+        <span class="mk"><strong>GAMES PLAYED</strong>87</span>
+        <span class="mk"><strong>DAYS</strong>62</span>
+        <span class="mk"><strong>CHAMPION</strong>Boston Celtics</span>
+      </div>
+      <div class="bracket-shell" id="bracketShell"></div>
+      <div class="chart-source">Source · NBA · 2024 NBA Playoffs · ◊ champion's path highlighted</div>
+    </section>
+
+    <!-- 04.7 — ERA SHAPES (Chart 05 — small-multiples radar) -->
+    <section class="content-block eras-block" id="erasBlock">
+      <span class="section-tag">— 04.7 / Era Shapes</span>
+      <h2 class="block-title">Four kingdoms.<br>Four shapes.</h2>
+      <p class="chart-subhed">
+        Every era leaves a different fingerprint on the league. The shape of dominance,
+        compared on five axes — <em>titles, win rate, MVPs, dynasty length, league share</em>.
+      </p>
+      <div class="eras-grid" id="erasGrid"></div>
+      <div class="chart-source">Source · NBA / Basketball Reference · era windows defined by sustained dominance</div>
+    </section>
+
+    <!-- SCENE 3: THE ULTIMATE PRIZE -->
+    <section class="scene scene-3" data-scene="3">
+      <div class="copy">
+        <span class="eyebrow">05 — The Ultimate Prize</span>
+        <h2 class="display">Road to<br>the Trophy.</h2>
+        <p class="body-copy">
+          Sixteen wins. Four series. One name etched in gold.
+          The destination of every chase ever made — and the
+          reason the next one already begins tomorrow.
+        </p>
+        <div class="drag-hint">Click &amp; Drag to Rotate</div>
+      </div>
+      <span class="kicker"><span class="num">03</span>The Trophy<span class="sep">·</span>The destination of every dream</span>
+    </section>
+
+    <!-- 05.2 — ODDS BY ROUND (Chart 08 — concentric arcs) -->
+    <section class="content-block rounds-block" id="roundsBlock">
+      <span class="section-tag">— 05.2 / The Odds</span>
+      <h2 class="block-title">The math<br>against you.</h2>
+      <p class="chart-subhed">
+        Of every team that <em>opens the playoffs</em>, half lose their first round.
+        Of those who advance, half lose the next. Multiply this four times.
+        The number that survives is brutally small.
+      </p>
+      <div class="rounds-grid">
+        <div class="rounds-svg-wrap">
+          <svg class="rounds-svg" id="roundsSvg" viewBox="0 0 360 360" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+        </div>
+        <div>
+          <ul class="rounds-legend">
+            <li><span class="rl-num">16</span><span class="rl-name">Open the Playoffs</span><span class="rl-pct">53% of league</span></li>
+            <li><span class="rl-num">8</span> <span class="rl-name">Conference Semis</span> <span class="rl-pct">27%</span></li>
+            <li><span class="rl-num">4</span> <span class="rl-name">Conference Finals</span><span class="rl-pct">13%</span></li>
+            <li><span class="rl-num">2</span> <span class="rl-name">NBA Finals</span>      <span class="rl-pct">7%</span></li>
+            <li><span class="rl-num">1</span> <span class="rl-name">Champion</span>        <span class="rl-pct" style="color: var(--accent-orange);">3.3%</span></li>
+          </ul>
+          <p class="shot-takeaway" style="margin-top: 28px;">
+            <em>Translation</em>in any season, ninety-seven of every hundred teams go home empty.
+          </p>
+        </div>
+      </div>
+      <div class="chart-source">Source · league composition since 2004 (30 teams, 16 playoff berths)</div>
+    </section>
+
+    <!-- 05.5 — MOMENTS (horizontal pinned scroll, 6 frames) -->
+    <section class="moments-block" id="momentsBlock" aria-label="Eternal frames">
+      <div class="moments-header">
+        <span class="section-tag">— 05.5 / Moments</span>
+        <h2 class="block-title">Eternal<br>frames.</h2>
+      </div>
+      <div class="moments-counter"><strong>06</strong>FRAMES · 1969–2024</div>
+      <div class="moments-cue">SCROLL</div>
+
+      <div class="moments-track" id="momentsTrack">
+        <figure class="moment">
+          <span class="moment-index">01 / 06</span>
+          <img src="https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=1600&q=80"
+               alt="Bill Russell-era championship moment"
+               loading="lazy" decoding="async" />
+          <figcaption class="moment-meta">
+            <div class="moment-year">1969</div>
+            <p class="moment-caption">
+              Eleven rings in thirteen years. The blueprint for every dynasty that followed.
+            </p>
+            <div class="moment-stat">G7 · BOS 108 · LAL 106 · The Garden</div>
+          </figcaption>
+        </figure>
+
+        <figure class="moment">
+          <span class="moment-index">02 / 06</span>
+          <img src="https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=1600&q=80"
+               alt="Showtime Lakers era"
+               loading="lazy" decoding="async" />
+          <figcaption class="moment-meta">
+            <div class="moment-year">1985</div>
+            <p class="moment-caption">
+              Showtime — when basketball stopped being a sport and became theater.
+            </p>
+            <div class="moment-stat">FINALS · LAL 4–2 · Magic, MVP</div>
+          </figcaption>
+        </figure>
+
+        <figure class="moment">
+          <span class="moment-index">03 / 06</span>
+          <img src="https://images.unsplash.com/photo-1577471488278-16eec37ffcc2?auto=format&fit=crop&w=1600&q=80"
+               alt="Jordan-era last shot moment"
+               loading="lazy" decoding="async" />
+          <figcaption class="moment-meta">
+            <div class="moment-year">1998</div>
+            <p class="moment-caption">
+              His sixth. Their last. The shot that ended the longest argument in basketball.
+            </p>
+            <div class="moment-stat">G6 · 5.2s LEFT · CHI 87 · UTA 86</div>
+          </figcaption>
+        </figure>
+
+        <figure class="moment">
+          <span class="moment-index">04 / 06</span>
+          <img src="https://images.unsplash.com/photo-1574623452334-1e0ac2b3ccb4?auto=format&fit=crop&w=1600&q=80"
+               alt="Modern era three-point celebration"
+               loading="lazy" decoding="async" />
+          <figcaption class="moment-meta">
+            <div class="moment-year">2016</div>
+            <p class="moment-caption">
+              Three-one. The greatest comeback the Finals had ever seen — three points, one shot, one ring.
+            </p>
+            <div class="moment-stat">G7 · CLE 93 · GSW 89 · Kyrie's three</div>
+          </figcaption>
+        </figure>
+
+        <figure class="moment">
+          <span class="moment-index">05 / 06</span>
+          <img src="https://images.unsplash.com/photo-1504450758481-7338eba7524a?auto=format&fit=crop&w=1600&q=80"
+               alt="Empty basketball court at night — bubble era"
+               loading="lazy" decoding="async" />
+          <figcaption class="moment-meta">
+            <div class="moment-year">2020</div>
+            <p class="moment-caption">
+              The bubble. A finals played in front of nobody — and yet, somehow, everyone.
+            </p>
+            <div class="moment-stat">FINALS · LAL 4–2 · Orlando · 0 fans</div>
+          </figcaption>
+        </figure>
+
+        <figure class="moment">
+          <span class="moment-index">06 / 06</span>
+          <img src="https://images.unsplash.com/photo-1518509562904-e7ef99cdcc86?auto=format&fit=crop&w=1600&q=80"
+               alt="Modern championship celebration"
+               loading="lazy" decoding="async" />
+          <figcaption class="moment-meta">
+            <div class="moment-year">2024</div>
+            <p class="moment-caption">
+              Eighteen banners. The Celtics, again. A franchise that defines the franchise.
+            </p>
+            <div class="moment-stat">FINALS · BOS 4–1 · Tatum, Brown</div>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 05.6 — DECADE METRICS (Chart 06 — small multiples line) -->
+    <section class="content-block decade-block" id="decadeBlock">
+      <span class="section-tag">— 05.6 / How the Game Changed</span>
+      <h2 class="block-title">Faster.<br>Higher.<br>Further.</h2>
+      <p class="chart-subhed">
+        The same trophy, a different sport every era. Three numbers tell the
+        whole story of <em>seven decades</em> of evolution.
+      </p>
+      <div class="decade-grid" id="decadeGrid">
+        <div class="decade-card">
+          <div class="dec-eyebrow">Pace</div>
+          <div class="dec-headline">99.7 <span style="font-size:0.6em;color:var(--ink-dim);letter-spacing:0.1em;">poss/game</span></div>
+          <div class="dec-delta down">↓ from 119 in 1960 — but trending up since 2010</div>
+          <svg class="dec-svg" data-metric="pace" viewBox="0 0 320 110" preserveAspectRatio="none"></svg>
+          <div class="dec-foot"><span>1950s</span><span>2020s</span></div>
+        </div>
+        <div class="decade-card">
+          <div class="dec-eyebrow">Points / Game</div>
+          <div class="dec-headline">114.2 <span style="font-size:0.6em;color:var(--ink-dim);letter-spacing:0.1em;">PPG</span></div>
+          <div class="dec-delta up">↑ all-time high — modern offense is the most prolific ever</div>
+          <svg class="dec-svg" data-metric="ppg" viewBox="0 0 320 110" preserveAspectRatio="none"></svg>
+          <div class="dec-foot"><span>1950s</span><span>2020s</span></div>
+        </div>
+        <div class="decade-card">
+          <div class="dec-eyebrow">3PT Attempts</div>
+          <div class="dec-headline">35.1 <span style="font-size:0.6em;color:var(--ink-dim);letter-spacing:0.1em;">/ game</span></div>
+          <div class="dec-delta up">↑ 16× since 1980 — the geometry has rewritten itself</div>
+          <svg class="dec-svg" data-metric="three" viewBox="0 0 320 110" preserveAspectRatio="none"></svg>
+          <div class="dec-foot"><span>1980</span><span>2025</span></div>
+        </div>
+      </div>
+      <div class="chart-source">Source · NBA league averages by decade · per-game pace, scoring, three-point volume</div>
+    </section>
+
+    <!-- 05.7 — TITLE DISTRIBUTION (Chart 09) -->
+    <section class="content-block titles-block">
+      <span class="section-tag">— 05.7 / Distribution of Glory</span>
+      <h2 class="block-title">Where the<br>trophies live.</h2>
+      <p class="chart-subhed">
+        Of <em>76 championships</em> awarded since 1947, two franchises hold
+        nearly half. The rest of the league fights for the remainder.
+      </p>
+      <div class="title-bars" id="titleBars">
+        <div class="tb-row dynasty"><span class="tb-name">Boston Celtics</span>      <div class="tb-rail"><div class="tb-fill"          style="--target-w: 100%;"></div></div><span class="tb-num">18</span></div>
+        <div class="tb-row dynasty"><span class="tb-name">Los Angeles Lakers</span>   <div class="tb-rail"><div class="tb-fill"          style="--target-w: 94.4%;"></div></div><span class="tb-num">17</span></div>
+        <div class="tb-row dynasty"><span class="tb-name">Golden State Warriors</span><div class="tb-rail"><div class="tb-fill"          style="--target-w: 38.9%;"></div></div><span class="tb-num">7</span></div>
+        <div class="tb-row"        ><span class="tb-name">Chicago Bulls</span>        <div class="tb-rail"><div class="tb-fill dim"      style="--target-w: 33.3%;"></div></div><span class="tb-num">6</span></div>
+        <div class="tb-row"        ><span class="tb-name">San Antonio Spurs</span>    <div class="tb-rail"><div class="tb-fill dim"      style="--target-w: 27.8%;"></div></div><span class="tb-num">5</span></div>
+        <div class="tb-row"        ><span class="tb-name">Philadelphia 76ers</span>   <div class="tb-rail"><div class="tb-fill dim"      style="--target-w: 16.7%;"></div></div><span class="tb-num">3</span></div>
+        <div class="tb-row"        ><span class="tb-name">Detroit Pistons</span>      <div class="tb-rail"><div class="tb-fill dim"      style="--target-w: 16.7%;"></div></div><span class="tb-num">3</span></div>
+        <div class="tb-row"        ><span class="tb-name">Miami Heat</span>           <div class="tb-rail"><div class="tb-fill dim"      style="--target-w: 16.7%;"></div></div><span class="tb-num">3</span></div>
+        <div class="tb-row"        ><span class="tb-name">Houston Rockets</span>      <div class="tb-rail"><div class="tb-fill dim"      style="--target-w: 11.1%;"></div></div><span class="tb-num">2</span></div>
+        <div class="tb-row"        ><span class="tb-name">Milwaukee Bucks</span>      <div class="tb-rail"><div class="tb-fill dim"      style="--target-w: 11.1%;"></div></div><span class="tb-num">2</span></div>
+        <div class="tb-row"        ><span class="tb-name">New York Knicks</span>      <div class="tb-rail"><div class="tb-fill dim"      style="--target-w: 11.1%;"></div></div><span class="tb-num">2</span></div>
+        <div class="tb-row"        ><span class="tb-name">14 Other Franchises</span>  <div class="tb-rail"><div class="tb-fill dim"      style="--target-w: 44.4%;"></div></div><span class="tb-num">8</span></div>
+        <div class="tb-callout">
+          The top three franchises account for <strong style="color: var(--ink); font-style: normal;">42 of 76 titles</strong> — 55% of the league's history. Counts include franchise predecessors (Minneapolis Lakers, Syracuse Nationals, Fort Wayne Pistons, Seattle SuperSonics).
+        </div>
+      </div>
+      <div class="chart-source">Source · NBA / Basketball Reference · titles 1947–2025</div>
+    </section>
+
+    <!-- 06 — HALL OF KINGS -->
+    <section class="content-block champions-roll">
+      <span class="section-tag">— 06 / Hall of Kings</span>
+      <h2 class="block-title">Recent<br>champions.</h2>
+      <ul class="champ-list">
+        <li data-series="WLWWLW">
+          <span class="year">2019</span>
+          <span class="team">Toronto Raptors</span>
+          <span class="games">4–2 vs. GSW</span>
+        </li>
+        <li data-series="WWLWLW">
+          <span class="year">2020</span>
+          <span class="team">Los Angeles Lakers</span>
+          <span class="games">4–2 vs. MIA</span>
+        </li>
+        <li data-series="LLWWWW">
+          <span class="year">2021</span>
+          <span class="team">Milwaukee Bucks</span>
+          <span class="games">4–2 vs. PHX</span>
+        </li>
+        <li data-series="LWLWWW">
+          <span class="year">2022</span>
+          <span class="team">Golden State Warriors</span>
+          <span class="games">4–2 vs. BOS</span>
+        </li>
+        <li data-series="WLWWW">
+          <span class="year">2023</span>
+          <span class="team">Denver Nuggets</span>
+          <span class="games">4–1 vs. MIA</span>
+        </li>
+        <li data-series="WWWLW">
+          <span class="year">2024</span>
+          <span class="team">Boston Celtics</span>
+          <span class="games">4–1 vs. DAL</span>
+        </li>
+        <li data-series="LWLWWLW">
+          <span class="year">2025</span>
+          <span class="team">Oklahoma City Thunder</span>
+          <span class="games">4–3 vs. IND</span>
+        </li>
+        <li class="next">
+          <span class="year">2026</span>
+          <span class="team">In pursuit…</span>
+          <span class="games">— —</span>
+        </li>
+      </ul>
+    </section>
+
+    <!-- 06.5 — TREEMAP (Chart 10) -->
+    <section class="content-block treemap-block" id="treemapBlock">
+      <span class="section-tag">— 06.5 / Title Real Estate</span>
+      <h2 class="block-title">The map<br>of glory.</h2>
+      <p class="chart-subhed">
+        Each tile is a franchise, sized by total titles. A handful of cities
+        own the geography of championship basketball.
+      </p>
+      <div class="treemap" id="treemap"></div>
+      <div class="chart-source">Source · NBA · titles 1947–2025 · franchise predecessors counted (MIN→LAL, SYR→PHI)</div>
+    </section>
+
+    <!-- 06.7 — DROUGHTS (Chart 12) -->
+    <section class="content-block drought-block" id="droughtBlock">
+      <span class="section-tag">— 06.7 / The Long Wait</span>
+      <h2 class="block-title">The space<br>between.</h2>
+      <p class="chart-subhed">
+        Every tick is a title. Every gap is a generation that didn't taste it.
+        Some droughts stretch <em>longer than the league has had its current name</em>.
+      </p>
+      <div class="drought-rows" id="droughtRows"></div>
+      <div class="drought-axis">
+        <div></div>
+        <div class="ax-track"><span>1947</span><span>1970</span><span>1990</span><span>2010</span><span>2025</span></div>
+        <div></div>
+      </div>
+      <div class="chart-source">Source · longest active droughts among teams w/ ≥1 title; in pursuit = current drought · ◊ blue band</div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="site-footer">
+      <div class="marquee">
+        <span class="marquee-track">
+          THE CHASE <span class="dot">●</span> SIXTEEN WINS <span class="dot">●</span> FOUR SERIES <span class="dot">●</span> ONE TROPHY <span class="dot">●</span> FORTY-EIGHT MINUTES <span class="dot">●</span> ZERO EXCUSES <span class="dot">●</span> THE CHASE <span class="dot">●</span> SIXTEEN WINS <span class="dot">●</span> FOUR SERIES <span class="dot">●</span> ONE TROPHY <span class="dot">●</span>
+        </span>
+      </div>
+      <div class="footer-grid">
+        <div>
+          <div class="footer-brand">THE CHASE</div>
+          <p>An immersive scrollytelling demonstration. A study in cinematic web — persistent 3D, scroll-driven camera work, and editorial typography. Inspired by every player who ever chased the trophy.</p>
+        </div>
+        <div>
+          <div class="footer-tag">Built With</div>
+          <p>Three.js<br>GSAP + ScrollTrigger<br>EffectComposer / UnrealBloom<br>HTML / CSS / Vanilla JS</p>
+        </div>
+        <div>
+          <div class="footer-tag">Concept</div>
+          <p>A demo for cinematic web design — proving that the browser can render film-grade moments at 60fps without a single megabyte of video.</p>
+        </div>
+      </div>
+      <div class="footer-base">
+        <span>© 2026 — Demo build</span>
+        <span>Made with reverence</span>
+      </div>
+    </footer>
+  </main>
+
+  <!-- cinematic loader: type-on title + real-progress counter -->
+  <div class="loader" id="loader" aria-live="polite">
+    <div class="loader-stage">
+      <h1 class="loader-title"><span id="loaderType"></span><span class="caret">&nbsp;</span></h1>
+      <div class="loader-meta">
+        <span><span class="loader-pct" id="loaderPct">0</span>%</span>
+        <span class="loader-sep">·</span>
+        <span class="loader-status" id="loaderStatus">SUMMONING</span>
+      </div>
+    </div>
+  </div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader }        from 'three/addons/loaders/GLTFLoader.js';
+import { RGBELoader }        from 'three/addons/loaders/RGBELoader.js';
+import { RoomEnvironment }   from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer }    from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }        from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass }   from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass }        from 'three/addons/postprocessing/OutputPass.js';
+
+gsap.registerPlugin(ScrollTrigger);
+
+/* ============================================================
+   0.  ENVIRONMENT FLAGS — reduced motion + viewport
+   ============================================================ */
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const SCRUB = reducedMotion ? false : 1;       // disables scroll-scrub when set
+const isPhone = () => window.innerWidth < 720;
+
+/* ============================================================
+   1.  RENDERER / SCENE / CAMERA
+   ============================================================ */
+const canvas = document.getElementById('webgl');
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: true, alpha: true, powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+scene.background = null; // transparent so CSS bg shows through
+
+// Generate a soft environment map for PBR reflections (especially the trophy)
+// Initial fallback so the first frame already has reflections; an async HDR
+// upgrade swaps in once Poly Haven returns.
+const pmrem = new THREE.PMREMGenerator(renderer);
+pmrem.compileEquirectangularShader();
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// Async upgrade — proper HDR studio environment so the gold trophy reads as gold.
+// Poly Haven CDN is CORS-enabled and serves direct .hdr files.
+const HDR_URL = 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/studio_small_09_2k.hdr';
+// Deferred bag of refs the HDR callback can poke once they exist
+const HDR_DEFERRED = { trophy: null };
+
+// Tell the loader we're now in the lighting phase (≈30% baseline)
+window.__loaderProgress?.(30, 'LIGHTING SCENE');
+
+new RGBELoader().load(
+  HDR_URL,
+  (hdr) => {
+    hdr.mapping = THREE.EquirectangularReflectionMapping;
+    const envMap = pmrem.fromEquirectangular(hdr).texture;
+    if (scene.environment) scene.environment.dispose?.();
+    scene.environment = envMap;
+    const t = HDR_DEFERRED.trophy;
+    if (t?.userData?.materials) {
+      t.userData.materials.forEach(m => {
+        if ('envMapIntensity' in m) m.envMapIntensity *= 1.15;
+      });
+    }
+    hdr.dispose();
+    window.__loaderHDRDone?.();
+  },
+  (xhr) => {
+    if (xhr && xhr.lengthComputable && xhr.total) {
+      // Map HDR download into the 30→90% band of the staged loader
+      const pct = 30 + (xhr.loaded / xhr.total) * 60;
+      window.__loaderProgress?.(pct, 'LIGHTING SCENE');
+    }
+  },
+  () => {
+    // HDR failed — RoomEnvironment fallback already in scene.environment. Don't block.
+    window.__loaderHDRDone?.();
+  }
+);
+
+// Wider FOV on phones so the procedural models read smaller in frame
+// without needing to retune every camera position in the GSAP timelines.
+const camera = new THREE.PerspectiveCamera(
+  isPhone() ? 52 : 35, window.innerWidth / window.innerHeight, 0.1, 100
+);
+camera.position.set(0, 0, 7);
+
+/* ============================================================
+   2.  CINEMATIC LIGHTING — key + blue rim + orange rim
+   ============================================================ */
+scene.add(new THREE.AmbientLight(0x1a1d24, 0.4));
+
+const keyLight = new THREE.SpotLight(0xffffff, 60, 30, Math.PI / 7, 0.55, 1.2);
+keyLight.position.set(2.5, 5, 4);
+scene.add(keyLight);
+
+const rimBlue = new THREE.PointLight(0x3a78ff, 80, 18, 1.4);
+rimBlue.position.set(-4.5, 1.2, -2);
+scene.add(rimBlue);
+
+const rimOrange = new THREE.PointLight(0xff5e1a, 90, 18, 1.4);
+rimOrange.position.set(4.5, 0.5, -2.5);
+scene.add(rimOrange);
+
+const fillTop = new THREE.DirectionalLight(0xffffff, 0.4);
+fillTop.position.set(0, 8, 2);
+scene.add(fillTop);
+
+/* ============================================================
+   3.  PLACEHOLDER MODELS
+   Each function returns a THREE.Object3D you can later replace
+   by loading a .glb into the same world position via GLTFLoader.
+   ============================================================ */
+
+// ---------- 3a. Procedural basketball textures (color + roughness) ----------
+// Returns { color, rough } — paired CanvasTextures so the seams catch light
+// differently than the pebbled body. Higher resolution + finer pebble grain
+// than v1 so close-up macro shots in scene 1 don't read as flat.
+function makeBasketballTextures() {
+  const W = 2048, H = 1024;
+
+  // ---- SEAM TOPOLOGY ----
+  // Real basketballs have 4 seams forming a specific topology:
+  //   1 equator (around)  +  1 perpendicular meridian (over the pole)
+  //   2 figure-8 great-circle curves offset 90° from the meridian.
+  // In an equirectangular UV unwrap that maps to:
+  //   • the horizontal equator
+  //   • two vertical lines at U=0.25 and U=0.75 (the meridian, wrapped)
+  //   • two sinusoidal curves that swing between the meridian seams
+  const drawSeams = (g, color, lw) => {
+    g.strokeStyle = color;
+    g.lineWidth = lw;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    // equator
+    g.beginPath(); g.moveTo(0, H/2); g.lineTo(W, H/2); g.stroke();
+    // meridian (two vertical halves)
+    g.beginPath(); g.moveTo(W*0.25, 0); g.lineTo(W*0.25, H); g.stroke();
+    g.beginPath(); g.moveTo(W*0.75, 0); g.lineTo(W*0.75, H); g.stroke();
+    // two figure-8 curves: sin wave across full width, amplitude H*0.30,
+    // centered on equator. Two passes offset 180° give the offset great circles.
+    for (const phase of [0, Math.PI]) {
+      g.beginPath();
+      const steps = 96;
+      for (let i = 0; i <= steps; i++) {
+        const u = i / steps;
+        const x = u * W;
+        const y = H/2 + Math.sin(u * Math.PI * 2 + phase) * H * 0.30;
+        if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+  };
+
+  // ---- COLOR MAP ----
+  const cc = document.createElement('canvas');
+  cc.width = W; cc.height = H;
+  const gc = cc.getContext('2d');
+
+  // base orange with a touch of vertical falloff so polar regions read deeper
+  const base = gc.createLinearGradient(0, 0, 0, H);
+  base.addColorStop(0,    '#c5621f');
+  base.addColorStop(0.5,  '#b9521a');
+  base.addColorStop(1,    '#7d3a13');
+  gc.fillStyle = base;
+  gc.fillRect(0, 0, W, H);
+
+  // ---- PEBBLE TEXTURE ----
+  // Each pebble = small dark circle (the pit between pebbles) with a soft
+  // highlight dot offset up-left (sun-side micro-shading). ~8000 pebbles
+  // distributed jittered-uniformly so the texture doesn't clump.
+  const PEBBLE_COUNT = 8000;
+  for (let i = 0; i < PEBBLE_COUNT; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const r = 1.6 + Math.random() * 2.4;
+    // dark pit (between pebbles)
+    gc.fillStyle = `rgba(28,12,4,${0.42 + Math.random()*0.22})`;
+    gc.beginPath(); gc.arc(x, y, r, 0, Math.PI*2); gc.fill();
+    // warm highlight on the pebble crown (offset up-left)
+    gc.fillStyle = `rgba(255,205,150,${0.18 + Math.random()*0.18})`;
+    gc.beginPath(); gc.arc(x - r*0.4, y - r*0.4, r*0.55, 0, Math.PI*2); gc.fill();
+  }
+
+  // larger soft mottling so the surface doesn't read as uniform pebble noise
+  for (let i = 0; i < 220; i++) {
+    const x = Math.random() * W, y = Math.random() * H, r = 24 + Math.random() * 64;
+    const grd = gc.createRadialGradient(x, y, 0, x, y, r);
+    grd.addColorStop(0, `rgba(20,8,2,${0.06 + Math.random()*0.07})`);
+    grd.addColorStop(1, 'rgba(20,8,2,0)');
+    gc.fillStyle = grd;
+    gc.beginPath(); gc.arc(x, y, r, 0, Math.PI*2); gc.fill();
+  }
+
+  // Seam channel — dark recessed groove with a faint highlight along the lip
+  drawSeams(gc, '#150802', 9);                     // deep groove
+  drawSeams(gc, 'rgba(255,210,170,0.22)', 1.2);    // micro highlight on the lip
+
+  const color = new THREE.CanvasTexture(cc);
+  color.colorSpace = THREE.SRGBColorSpace;
+  color.anisotropy = 16;
+  color.wrapS = color.wrapT = THREE.RepeatWrapping;
+
+  // ---- NORMAL MAP ----
+  // Build a height field for the pebbles, then derive an RGB normal map from it.
+  // Pebbles = bumps (bright), seams = recessed (dark).
+  const hc = document.createElement('canvas');
+  hc.width = W; hc.height = H;
+  const gh = hc.getContext('2d');
+  gh.fillStyle = '#808080';                       // neutral height
+  gh.fillRect(0, 0, W, H);
+  for (let i = 0; i < PEBBLE_COUNT; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const r = 1.8 + Math.random() * 2.8;
+    const grd = gh.createRadialGradient(x, y, 0, x, y, r);
+    grd.addColorStop(0,   '#e0e0e0');             // pebble crown (raised)
+    grd.addColorStop(0.7, '#909090');
+    grd.addColorStop(1,   '#404040');             // pit between pebbles
+    gh.fillStyle = grd;
+    gh.beginPath(); gh.arc(x, y, r, 0, Math.PI*2); gh.fill();
+  }
+  // recess the seam channels into the height field
+  gh.globalCompositeOperation = 'source-over';
+  gh.strokeStyle = '#202020';
+  gh.lineWidth = 9;
+  gh.lineCap = 'round'; gh.lineJoin = 'round';
+  // reuse drawSeams as a low-level path — temporarily flip style fields
+  drawSeams(gh, '#202020', 9);
+
+  // Sobel-style normal derivation: sample the height canvas, build normal RGB.
+  const hImg = gh.getImageData(0, 0, W, H).data;
+  const nc = document.createElement('canvas');
+  nc.width = W; nc.height = H;
+  const gn = nc.getContext('2d');
+  const nImg = gn.createImageData(W, H);
+  const strength = 2.6;
+  const sample = (x, y) => {
+    x = (x + W) % W;                              // wrap-around (equirectangular)
+    y = Math.max(0, Math.min(H - 1, y));
+    return hImg[(y * W + x) * 4] / 255;           // R channel = height
+  };
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const dx = (sample(x + 1, y) - sample(x - 1, y)) * strength;
+      const dy = (sample(x, y + 1) - sample(x, y - 1)) * strength;
+      // normal = normalize(-dx, -dy, 1)  →  RGB = n*0.5 + 0.5
+      const nx = -dx, ny = -dy, nz = 1;
+      const inv = 1 / Math.sqrt(nx*nx + ny*ny + nz*nz);
+      const i = (y * W + x) * 4;
+      nImg.data[i  ] = ((nx * inv) * 0.5 + 0.5) * 255;
+      nImg.data[i+1] = ((ny * inv) * 0.5 + 0.5) * 255;
+      nImg.data[i+2] = ((nz * inv) * 0.5 + 0.5) * 255;
+      nImg.data[i+3] = 255;
+    }
+  }
+  gn.putImageData(nImg, 0, 0);
+  const normal = new THREE.CanvasTexture(nc);
+  normal.anisotropy = 16;
+  normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
+
+  // ---- ROUGHNESS MAP ----
+  // Seams sit lower (slicker rubber → less rough); pebble grain mid-rough.
+  const rc = document.createElement('canvas');
+  rc.width = W; rc.height = H;
+  const gr = rc.getContext('2d');
+  gr.fillStyle = '#b8b8b8';                       // base rough (~0.72)
+  gr.fillRect(0, 0, W, H);
+  // brighter pebble crowns (slightly rougher than the base) for breakup
+  for (let i = 0; i < 4000; i++) {
+    const x = Math.random() * W, y = Math.random() * H, r = 1.4 + Math.random() * 2.2;
+    gr.fillStyle = `rgba(255,255,255,${0.15 + Math.random()*0.25})`;
+    gr.beginPath(); gr.arc(x, y, r, 0, Math.PI*2); gr.fill();
+  }
+  drawSeams(gr, '#383838', 9);                    // seams = darker = less rough → catch sheen
+
+  const rough = new THREE.CanvasTexture(rc);
+  rough.anisotropy = 8;
+  rough.wrapS = rough.wrapT = THREE.RepeatWrapping;
+
+  return { color, rough, normal };
+}
+
+// ---------- 3b. Basketball ----------
+// Procedural PBR — color + roughness + bump from the same canvas pair.
+// Variable name `basketball` (Mesh w/ .material) preserved for the GSAP timeline.
+function buildBasketball() {
+  const { color, rough, normal } = makeBasketballTextures();
+  // Physical material — proper normal map drives the pebble micro-surface,
+  // clearcoat adds a thin sheen so the orange/blue rim lights wrap edges
+  // instead of dying on matte leather.
+  const mat = new THREE.MeshPhysicalMaterial({
+    map: color,
+    normalMap: normal,
+    normalScale: new THREE.Vector2(1.15, 1.15),
+    roughnessMap: rough,
+    roughness: 0.68,
+    metalness: 0.04,
+    clearcoat: 0.22,
+    clearcoatRoughness: 0.48,
+    envMapIntensity: 0.78,
+    transparent: true,
+    opacity: 1,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.6, 160, 160), mat);
+  return mesh;
+}
+
+// ---------- 3c. Player — real basketball player GLB ----------
+// Loads a 3D-scanned basketball player in mid-jumpshot pose (Sketchfab v0 model,
+// CC-Attribution, TulioPortela). Falls back to the procedural figure if the
+// GLB can't load, so the experience never breaks.
+const PLAYER_GLB_URL = './player.glb';
+function buildPlayer() {
+  // Wrapper group — GSAP animates THIS group's position/rotation and fades
+  // materials via group.userData.materials.
+  const group = new THREE.Group();
+  group.userData.materials = [];
+
+  new GLTFLoader().load(
+    PLAYER_GLB_URL,
+    (gltf) => {
+      const figure = gltf.scene;
+
+      // Collect every material so the GSAP opacity fade can sweep them all.
+      // Keep the model's original textures/PBR — they're what makes this look
+      // like a real basketball player instead of a procedural sculpture.
+      const materials = [];
+      figure.traverse((c) => {
+        if (c.isMesh || c.isSkinnedMesh) {
+          c.frustumCulled = false;
+          // Each mesh's material(s) need transparent+opacity for the fade
+          const mats = Array.isArray(c.material) ? c.material : [c.material];
+          for (const m of mats) {
+            if (!m) continue;
+            m.transparent = true;
+            m.opacity = 1;
+            // HDR will boost envMapIntensity later if the material supports it
+            if ('envMapIntensity' in m) m.envMapIntensity = 1.0;
+            if (!materials.includes(m)) materials.push(m);
+          }
+        }
+      });
+
+      // The GLB exports with feet at y=0 and head at y~1.95 (centered around
+      // (0, 0, 0) in X/Z). The scene expects the player roughly at y=-1.35 with
+      // height ~3.5 to match the established camera framing. Scale & lift.
+      const TARGET_HEIGHT = 3.5;
+      figure.scale.setScalar(TARGET_HEIGHT / 2.0);    // 1.75× → ~3.5 units tall
+      figure.position.y = -1.35;                       // lifted a bit higher in frame
+
+      figure.rotation.y = 0;
+
+      group.add(figure);
+      group.userData.materials = materials;
+    },
+    undefined,                                          // progress callback unused
+    (err) => {
+      // Fallback to the procedural figure if the GLB 404s or fails to parse.
+      const fallback = buildPlayerProcedural();
+      group.add(fallback);
+      group.userData.materials = fallback.userData.materials;
+    }
+  );
+
+  return group;
+}
+
+// ---------- 3c-fallback / primary. Procedural bronze basketball player ----------
+// Unambiguous basketball-player silhouette:
+//   • Tank-top jersey (open arm holes) + jersey number "23" on the front
+//   • Long basketball shorts that flare past the knees
+//   • High-top sneakers with chunky soles + ankle collar
+//   • Headband around the head
+//   • Caught at the peak of a jump-shot, ball in the shooting hand
+function buildPlayerProcedural() {
+  const group = new THREE.Group();
+
+  // ---- Materials ----
+  // Skin: warm dark bronze with HDR pickup
+  const skin = new THREE.MeshStandardMaterial({
+    color: 0x1b1714, roughness: 0.30, metalness: 0.58,
+    envMapIntensity: 0.95, transparent: true, opacity: 1,
+  });
+  // Jersey & shorts: deeper, more matte bronze
+  const jersey = new THREE.MeshStandardMaterial({
+    color: 0x0e0a07, roughness: 0.55, metalness: 0.38,
+    envMapIntensity: 0.55, transparent: true, opacity: 1,
+  });
+  // Sneakers: near-black with a bit of sheen
+  const sneaker = new THREE.MeshStandardMaterial({
+    color: 0x080604, roughness: 0.42, metalness: 0.50,
+    envMapIntensity: 0.60, transparent: true, opacity: 1,
+  });
+  // Sole: warmer, lighter tone for high-contrast under the upper
+  const sole = new THREE.MeshStandardMaterial({
+    color: 0x3a2a18, roughness: 0.78, metalness: 0.18,
+    envMapIntensity: 0.40, transparent: true, opacity: 1,
+  });
+
+  // ---- Jersey number texture ("23") — applied to a curved chest plate ----
+  const numberTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = 512; c.height = 768;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, 512, 768);
+    g.fillStyle = '#caa247';                    // warm gold lettering against dark jersey
+    g.font = '900 360px "Bebas Neue", "Impact", sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('23', 256, 384);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return t;
+  })();
+  const numberMat = new THREE.MeshStandardMaterial({
+    map: numberTex, transparent: true, opacity: 1,
+    roughness: 0.6, metalness: 0.35, envMapIntensity: 0.7,
+    side: THREE.DoubleSide, alphaTest: 0.02,
+  });
+
+  // ---- Helpers ----
+  const lathe = (pts, mat, segments = 24, phiStart, phiLength) => {
+    const v2 = pts.map(([r, y]) => new THREE.Vector2(r, y));
+    const geo = (phiStart !== undefined)
+      ? new THREE.LatheGeometry(v2, segments, phiStart, phiLength)
+      : new THREE.LatheGeometry(v2, segments);
+    return new THREE.Mesh(geo, mat);
+  };
+
+  // ---- Torso (skin) ---- lathed taper: broad chest → narrow waist → flared hips.
+  const torsoProfile = [
+    [0.52, 0.00], [0.46, 0.18], [0.42, 0.40], [0.48, 0.62],
+    [0.56, 0.85], [0.62, 1.10], [0.56, 1.30], [0.34, 1.50], [0.20, 1.55],
+  ];
+  const torso = lathe(torsoProfile, skin, 28);
+  torso.position.y = 1.10;
+  group.add(torso);
+
+  // ---- Tank-top jersey ----
+  // Two angular lathe panels (front+back) covering ~150° each, with arm-hole
+  // gaps at the shoulders. Hem sits just below the waist; straps cap at chest.
+  const jerseyProfile = [
+    [0.54, 0.00],   // flat hem at waist
+    [0.49, 0.18],
+    [0.44, 0.40],
+    [0.50, 0.62],
+    [0.59, 0.85],
+    [0.63, 1.05],
+    [0.52, 1.22],   // shoulder strap rolls up
+    [0.40, 1.30],
+  ];
+  for (const phiStart of [Math.PI * 0.08, Math.PI * 1.08]) {
+    const panel = lathe(jerseyProfile, jersey, 18, phiStart, Math.PI * 0.84);
+    panel.position.y = 1.10;
+    group.add(panel);
+  }
+
+  // Curved number plate floating just in front of the chest jersey
+  const numberPlate = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.55, 0.55, 0.50, 28, 1, true, -0.5, 1.0),
+    numberMat
+  );
+  numberPlate.position.set(0, 2.05, 0);
+  group.add(numberPlate);
+
+  // ---- Long basketball shorts ----
+  // Two lathed leg tubes (one per thigh), flared at the hem so they read as
+  // baggy shorts rather than tight pants. They overlap at the waist to form
+  // the seat/crotch line.
+  const shortsProfile = [
+    [0.34, 0.00],    // hem (knee-line, flared)
+    [0.36, 0.12],
+    [0.34, 0.40],
+    [0.36, 0.70],
+    [0.38, 0.95],    // top at the waist
+    [0.30, 1.05],    // belt curl-in
+  ];
+  // Front leg shorts
+  const shortsL = lathe(shortsProfile, jersey, 22);
+  shortsL.position.set(0.26, 0.05, 0.05);
+  shortsL.rotation.x = -0.08;
+  group.add(shortsL);
+  // Back leg shorts
+  const shortsR = lathe(shortsProfile, jersey, 22);
+  shortsR.position.set(-0.30, 0.05, -0.06);
+  shortsR.rotation.x = 0.16;
+  group.add(shortsR);
+  // Waistband / belt — single thin torus around the hip line
+  const beltL = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.030, 10, 24), jersey);
+  beltL.position.set(0.26, 1.10, 0.05);
+  beltL.rotation.x = Math.PI / 2;
+  group.add(beltL);
+  const beltR = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.030, 10, 24), jersey);
+  beltR.position.set(-0.30, 1.10, -0.06);
+  beltR.rotation.x = Math.PI / 2;
+  group.add(beltR);
+
+  // ---- Shoulder caps ----
+  const shoulderL = new THREE.Mesh(new THREE.SphereGeometry(0.23, 28, 24), skin);
+  shoulderL.position.set(-0.58, 2.18, 0); group.add(shoulderL);
+  const shoulderR = new THREE.Mesh(new THREE.SphereGeometry(0.23, 28, 24), skin);
+  shoulderR.position.set( 0.58, 2.20, 0.04); group.add(shoulderR);
+
+  // ---- Neck ----
+  const neck = lathe([[0.13, 0.0], [0.14, 0.08], [0.15, 0.18]], skin, 18);
+  neck.position.y = 2.45; group.add(neck);
+
+  // ---- Head ---- ovoid + jaw bevel
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.31, 40, 36), skin);
+  head.position.set(0.05, 2.74, 0.05);
+  head.scale.set(1.0, 1.12, 0.96);
+  head.rotation.x = -0.16;
+  group.add(head);
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.18, 24, 20), skin);
+  jaw.position.set(0.06, 2.58, 0.16);
+  jaw.scale.set(1.0, 0.7, 0.85);
+  group.add(jaw);
+
+  // ---- Headband — slim torus wrapping the forehead ----
+  const headband = new THREE.Mesh(
+    new THREE.TorusGeometry(0.30, 0.045, 10, 28),
+    jersey
+  );
+  headband.position.set(0.05, 2.82, 0.05);       // forehead, just above eyebrow line
+  headband.rotation.x = Math.PI / 2;
+  headband.rotation.z = -0.10;                   // matches head's forward tilt
+  group.add(headband);
+
+  // ---- Raised shooting arm (right) ----
+  const upperR = lathe([[0.14, 0.0], [0.16, 0.18], [0.155, 0.45], [0.13, 0.85]], skin, 18);
+  upperR.position.set(0.62, 2.62, 0.06);
+  upperR.rotation.z = -1.05;
+  group.add(upperR);
+
+  const fArmR = lathe([[0.12, 0.0], [0.135, 0.25], [0.115, 0.55], [0.10, 0.72]], skin, 18);
+  fArmR.position.set(1.08, 3.18, 0.12);
+  fArmR.rotation.z = -0.18;
+  group.add(fArmR);
+
+  // Wristband — slim torus at the right wrist
+  const wristbandR = new THREE.Mesh(
+    new THREE.TorusGeometry(0.10, 0.025, 8, 20),
+    jersey
+  );
+  wristbandR.position.set(1.14, 3.58, 0.12);
+  wristbandR.rotation.x = Math.PI / 2;
+  wristbandR.rotation.z = -0.18;
+  group.add(wristbandR);
+
+  // Hand: flattened palm + four finger nubs + thumb
+  const handR = new THREE.Group();
+  const palm = new THREE.Mesh(new THREE.SphereGeometry(0.14, 22, 20), skin);
+  palm.scale.set(1.5, 0.6, 1.05);
+  handR.add(palm);
+  for (let i = 0; i < 4; i++) {
+    const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.028, 0.10, 4, 10), skin);
+    finger.position.set(0.18, -0.02, -0.07 + i * 0.045);
+    finger.rotation.z = -0.5;
+    handR.add(finger);
+  }
+  const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.030, 0.08, 4, 10), skin);
+  thumb.position.set(0.06, -0.06, 0.09);
+  thumb.rotation.z = -1.0;
+  handR.add(thumb);
+  handR.position.set(1.18, 3.62, 0.12);
+  handR.rotation.z = -0.25;
+  group.add(handR);
+
+  // ---- Guide arm (left) — slightly bent, hand near shoulder height ----
+  const upperL = lathe([[0.135, 0.0], [0.155, 0.20], [0.145, 0.55], [0.12, 1.00]], skin, 18);
+  upperL.position.set(-0.66, 1.58, 0);
+  upperL.rotation.z = 0.22;
+  group.add(upperL);
+
+  const fArmL = lathe([[0.11, 0.0], [0.125, 0.20], [0.10, 0.55]], skin, 18);
+  fArmL.position.set(-0.88, 0.95, 0.08);
+  fArmL.rotation.z = -0.05;
+  group.add(fArmL);
+
+  const handL = new THREE.Mesh(new THREE.SphereGeometry(0.13, 20, 18), skin);
+  handL.position.set(-0.95, 0.40, 0.10);
+  handL.scale.set(1.3, 0.9, 0.7);
+  group.add(handL);
+
+  // ---- Thighs (covered by shorts; only knee→ankle of skin shows) ----
+  // Skip the thigh skin entirely (shorts cover them). Just calves.
+  const calfL = lathe([[0.17, 0.0], [0.185, 0.18], [0.155, 0.55], [0.12, 0.78]], skin, 20);
+  calfL.position.set(0.27, -0.32, 0.10);
+  calfL.rotation.x = -0.02;
+  group.add(calfL);
+
+  const calfR = lathe([[0.16, 0.0], [0.175, 0.18], [0.145, 0.50], [0.115, 0.72]], skin, 20);
+  calfR.position.set(-0.32, -0.30, -0.20);
+  calfR.rotation.x = -0.14;
+  group.add(calfR);
+
+  // Knee caps — visible just below the shorts hem
+  const kneeL = new THREE.Mesh(new THREE.SphereGeometry(0.195, 20, 18), skin);
+  kneeL.position.set(0.27, 0.04, 0.08); group.add(kneeL);
+  const kneeR = new THREE.Mesh(new THREE.SphereGeometry(0.195, 20, 18), skin);
+  kneeR.position.set(-0.31, -0.05, -0.10); group.add(kneeR);
+
+  // ---- High-top sneakers ----
+  // Each sneaker = sole slab (warm tone) + upper toe-box + heel block +
+  // ankle collar (high-top cuff). The combined silhouette is unambiguously
+  // a basketball shoe rather than a foot.
+  const buildSneaker = (x, y, z, rotY) => {
+    const shoe = new THREE.Group();
+    // Sole — flat low slab, slightly wider than the upper
+    const soleSlab = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.08, 0.58), sole);
+    soleSlab.position.y = -0.04;
+    shoe.add(soleSlab);
+    // Upper midbody — boxy mid section
+    const mid = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.50), sneaker);
+    mid.position.y = 0.08;
+    shoe.add(mid);
+    // Toe box — rounded, slightly raised
+    const toe = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 16), sneaker);
+    toe.position.set(0, 0.06, 0.22);
+    toe.scale.set(1.0, 0.95, 1.35);
+    shoe.add(toe);
+    // Heel — chunky vertical block
+    const heel = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.16, 0.18), sneaker);
+    heel.position.set(0, 0.10, -0.18);
+    shoe.add(heel);
+    // High-top ankle collar
+    const collar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.13, 0.13, 0.14, 16),
+      sneaker
+    );
+    collar.position.set(0, 0.20, -0.12);
+    shoe.add(collar);
+    // Ankle opening — recessed dark interior (top of collar)
+    const opening = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.09, 0.02, 16),
+      sole
+    );
+    opening.position.set(0, 0.27, -0.12);
+    shoe.add(opening);
+    // Lace stripe — thin contrast band across the tongue
+    const lace = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.025, 0.08), sole);
+    lace.position.set(0, 0.16, 0.04);
+    shoe.add(lace);
+
+    shoe.position.set(x, y, z);
+    shoe.rotation.y = rotY;
+    return shoe;
+  };
+  group.add(buildSneaker( 0.28, -1.05,  0.20,  0.05));   // front planted shoe
+  group.add(buildSneaker(-0.34, -0.94, -0.38, -0.18));   // back lifted shoe
+
+  // ---- Joint smoothing spheres ----
+  const joints = [
+    [ 1.00,  2.85,  0.10, 0.155],   // right elbow
+    [-0.78,  0.95,  0.05, 0.135],   // left elbow
+  ];
+  joints.forEach(([x, y, z, r]) => {
+    const j = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 18), skin);
+    j.position.set(x, y, z);
+    group.add(j);
+  });
+
+  // ---- Mini basketball in the shooting hand ----
+  // Reuse the textured basketball material if the textures are still in
+  // memory; otherwise plain orange. Smaller than the hero ball.
+  const ballMat = new THREE.MeshStandardMaterial({
+    color: 0xd95820, roughness: 0.55, metalness: 0.05,
+    envMapIntensity: 0.7, transparent: true, opacity: 1,
+  });
+  const miniBall = new THREE.Mesh(new THREE.SphereGeometry(0.30, 40, 40), ballMat);
+  miniBall.position.set(1.32, 3.82, 0.12);
+  group.add(miniBall);
+  // Painted seam on the mini-ball — single equatorial line for read at distance
+  const miniSeam = new THREE.Mesh(
+    new THREE.TorusGeometry(0.30, 0.008, 8, 48),
+    new THREE.MeshStandardMaterial({
+      color: 0x3a1a08, roughness: 0.6, metalness: 0.1,
+      transparent: true, opacity: 1,
+    })
+  );
+  miniSeam.position.copy(miniBall.position);
+  miniSeam.rotation.x = Math.PI / 2;
+  miniSeam.rotation.z = 0.4;
+  group.add(miniSeam);
+
+  // Slight forward lean across the whole figure → mid-shot momentum
+  group.rotation.x = 0.06;
+
+  group.userData.materials = [skin, jersey, sneaker, sole, numberMat, ballMat, miniSeam.material];
+  return group;
+}
+
+// ---------- 3d. Larry O'Brien-style trophy ----------
+// Refined silhouette: tiered square base → narrow fluted column → flared cup
+// → gold basketball on top with proper 4-seam topology. HDR drives the gold glow.
+// All four sides are inscribed since Scene 3 lets the user drag-rotate.
+function buildTrophy() {
+  const group = new THREE.Group();
+
+  const gold = new THREE.MeshPhysicalMaterial({
+    color: 0xf4c34a,
+    metalness: 1.0,
+    roughness: 0.14,
+    clearcoat: 0.6,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 2.3,
+    transparent: true,
+    opacity: 1,
+  });
+
+  // Slightly darker brushed gold for ridges/seams — they read against the polished body
+  const goldDeep = new THREE.MeshPhysicalMaterial({
+    color: 0xb8862e,
+    metalness: 1.0,
+    roughness: 0.36,
+    envMapIntensity: 1.4,
+    transparent: true,
+    opacity: 1,
+  });
+
+  // ---- Tiered square base with beveled corners ----
+  // Box → BufferGeometry won't bevel; we use slightly inset boxes + chamfer
+  // discs to soften the corners visually.
+  const baseLow = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.22, 2.1), gold);
+  baseLow.position.y = -1.78; group.add(baseLow);
+
+  const baseMid = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.16, 1.85), goldDeep);
+  baseMid.position.y = -1.59; group.add(baseMid);
+
+  const baseTop = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.20, 1.55), gold);
+  baseTop.position.y = -1.41; group.add(baseTop);
+
+  // Thin trim rings between the tiers — softens hard box edges
+  const trimRing = (radius, y) => {
+    const r = new THREE.Mesh(
+      new THREE.TorusGeometry(radius, 0.015, 10, 64),
+      goldDeep
+    );
+    r.position.y = y;
+    r.rotation.x = Math.PI / 2;
+    return r;
+  };
+  group.add(trimRing(1.045, -1.66));
+  group.add(trimRing(0.920, -1.50));
+  group.add(trimRing(0.770, -1.30));
+
+  // ---- Inscription plates on all four sides of the mid-tier ----
+  // Built once, mapped to four oriented planes.
+  const makeInscriptionTex = (line1, line2) => {
+    const c = document.createElement('canvas');
+    c.width = 1024; c.height = 256;
+    const g = c.getContext('2d');
+    g.fillStyle = '#caa247';
+    g.fillRect(0, 0, 1024, 256);
+    g.strokeStyle = 'rgba(60,30,4,0.35)';
+    g.lineWidth = 4; g.strokeRect(36, 36, 952, 184);
+    g.strokeStyle = 'rgba(255,235,170,0.4)';
+    g.lineWidth = 1; g.strokeRect(40, 40, 944, 176);
+    g.fillStyle = '#3a1a0c';
+    g.font = '600 64px "Bebas Neue", "Impact", sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(line1, 512, 110);
+    g.font = '28px "Bebas Neue", "Impact", sans-serif';
+    g.fillStyle = '#5a2c10';
+    g.fillText(line2, 512, 175);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return t;
+  };
+  // Four faces — primary inscription on front, motto/years on the others
+  const plateMats = [
+    new THREE.MeshStandardMaterial({ map: makeInscriptionTex('LARRY O’BRIEN', 'CHAMPIONSHIP TROPHY'), roughness: 0.42, metalness: 0.85, envMapIntensity: 1.2, transparent: true, opacity: 1 }),
+    new THREE.MeshStandardMaterial({ map: makeInscriptionTex('SIXTEEN WINS', 'ONE TROPHY'),          roughness: 0.42, metalness: 0.85, envMapIntensity: 1.2, transparent: true, opacity: 1 }),
+    new THREE.MeshStandardMaterial({ map: makeInscriptionTex('THE CHASE', 'PRESENTED ANNUALLY'),    roughness: 0.42, metalness: 0.85, envMapIntensity: 1.2, transparent: true, opacity: 1 }),
+    new THREE.MeshStandardMaterial({ map: makeInscriptionTex('EST. 1947', 'NBA WORLD CHAMPIONS'),    roughness: 0.42, metalness: 0.85, envMapIntensity: 1.2, transparent: true, opacity: 1 }),
+  ];
+  const plateGeo = new THREE.PlaneGeometry(1.4, 0.36);
+  const plateSides = [
+    { rotY: 0,             pos: [ 0,    -1.59,  0.94] },   // front
+    { rotY: Math.PI,       pos: [ 0,    -1.59, -0.94] },   // back
+    { rotY: Math.PI / 2,   pos: [ 0.94, -1.59,  0   ] },   // right
+    { rotY: -Math.PI / 2,  pos: [-0.94, -1.59,  0   ] },   // left
+  ];
+  plateSides.forEach((s, i) => {
+    const p = new THREE.Mesh(plateGeo, plateMats[i]);
+    p.position.set(...s.pos);
+    p.rotation.y = s.rotY;
+    group.add(p);
+  });
+
+  // ---- Smooth lathe column ----
+  // Use a CatmullRom curve through control points and sample at higher density
+  // so the silhouette reads as a continuous curve, not a polygonal taper.
+  const controlPts = [
+    [0.66, 0.00],   // base ring (wider)
+    [0.52, 0.08],
+    [0.32, 0.22],
+    [0.22, 0.55],
+    [0.20, 1.10],   // narrow waist
+    [0.20, 1.30],
+    [0.22, 1.55],
+    [0.30, 1.78],
+    [0.50, 1.94],   // flare begins
+    [0.78, 2.10],
+    [0.92, 2.24],
+    [1.00, 2.40],   // cup rim
+    [0.96, 2.52],
+    [0.86, 2.62],   // lip rolls in
+    [0.82, 2.66],
+  ].map(([r, y]) => new THREE.Vector2(r, y));
+  const curve = new THREE.CatmullRomCurve3(
+    controlPts.map(v => new THREE.Vector3(v.x, v.y, 0)),
+    false, 'catmullrom', 0.35
+  );
+  const stemPts = curve.getPoints(72).map(v => new THREE.Vector2(Math.max(v.x, 0.001), v.y));
+  const stem = new THREE.Mesh(new THREE.LatheGeometry(stemPts, 128), gold);
+  stem.position.y = -1.31;
+  group.add(stem);
+
+  // ---- Fluted ridges along the column ----
+  // Tighter spacing on the lower neck, wider on the flare. Each ring scaled
+  // to roughly match the column radius at that height.
+  const columnRidges = [
+    [0.08, 0.58],   // [y, radius] — base flare
+    [0.22, 0.32],
+    [0.55, 0.225],
+    [0.95, 0.205],
+    [1.30, 0.20],
+    [1.55, 0.225],
+  ];
+  columnRidges.forEach(([y, r]) => {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(r, 0.018, 12, 64),
+      goldDeep
+    );
+    ring.position.y = -1.31 + y;
+    ring.rotation.x = Math.PI / 2;
+    group.add(ring);
+  });
+
+  // ---- Cup detail — horizontal grooves around the flare + decorative band ----
+  // The real Larry O'Brien cup has 5–6 subtle horizontal lines around the bowl.
+  const cupGrooves = [
+    [2.04, 0.835],
+    [2.13, 0.905],
+    [2.22, 0.955],
+    [2.30, 0.985],
+    [2.38, 1.000],
+  ];
+  cupGrooves.forEach(([y, r]) => {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(r, 0.012, 10, 90),
+      goldDeep
+    );
+    ring.position.y = -1.31 + y;
+    ring.rotation.x = Math.PI / 2;
+    group.add(ring);
+  });
+
+  // Stronger decorative band at the upper flare (replaces v1's single flareBand)
+  const flareBand = new THREE.Mesh(
+    new THREE.TorusGeometry(0.96, 0.028, 14, 96),
+    goldDeep
+  );
+  flareBand.position.y = -1.31 + 2.16;
+  flareBand.rotation.x = Math.PI / 2;
+  group.add(flareBand);
+
+  // Rim lip — a slim torus where the cup lip rolls inward
+  const rimLip = new THREE.Mesh(
+    new THREE.TorusGeometry(0.85, 0.022, 12, 96),
+    gold
+  );
+  rimLip.position.y = -1.31 + 2.65;
+  rimLip.rotation.x = Math.PI / 2;
+  group.add(rimLip);
+
+  // ---- Gold basketball on top ----
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.65, 128, 128), gold);
+  ball.position.y = 1.48;
+  group.add(ball);
+
+  // ---- Proper basketball seam topology on the gold ball ----
+  // Real basketball seams: 1 equator + 1 perpendicular meridian + 2 figure-8
+  // great circles. Build each seam as a TubeGeometry along a parameterized
+  // curve on the sphere surface, with a small radial offset so it sits on top.
+  const seamMat = new THREE.MeshStandardMaterial({
+    color: 0x6e4a18, roughness: 0.5, metalness: 0.9, envMapIntensity: 0.8,
+    transparent: true, opacity: 1,
+  });
+  const ballRadius = 0.6515;                      // tiny lift above sphere surface
+  const seamTubeR = 0.0095;
+
+  // Curve helper: array of (theta, phi) → Vector3 on sphere
+  const sphereCurve = (samples) => {
+    const pts = samples.map(([t, p]) => new THREE.Vector3(
+      ballRadius * Math.sin(p) * Math.cos(t),
+      ballRadius * Math.cos(p),
+      ballRadius * Math.sin(p) * Math.sin(t)
+    ));
+    return new THREE.CatmullRomCurve3(pts, true);
+  };
+
+  // 1. Equator: phi = π/2, theta sweeps 0→2π
+  const equatorSamples = [];
+  for (let i = 0; i < 64; i++) {
+    equatorSamples.push([(i / 64) * Math.PI * 2, Math.PI / 2]);
+  }
+  // 2. Perpendicular meridian: theta = 0 / π, phi sweeps 0→2π
+  const meridianSamples = [];
+  for (let i = 0; i < 64; i++) {
+    const t = (i / 64) * Math.PI * 2;
+    // parameterize as a great circle in the X-Y plane: vary phi continuously
+    meridianSamples.push([t < Math.PI ? 0 : Math.PI, t < Math.PI ? t : (t - Math.PI)]);
+  }
+  // 3 & 4. Figure-8 great circles offset 90° from the meridian
+  const figure8Samples = (phaseOffset) => {
+    const arr = [];
+    for (let i = 0; i < 64; i++) {
+      const u = i / 64;
+      // theta sweeps around, phi wobbles between π/4 and 3π/4 — a tilted great circle
+      const theta = u * Math.PI * 2 + phaseOffset;
+      const phi = Math.PI / 2 + Math.sin(u * Math.PI * 2 + phaseOffset) * (Math.PI / 4);
+      arr.push([theta, phi]);
+    }
+    return arr;
+  };
+
+  const seamCurves = [
+    sphereCurve(equatorSamples),
+    sphereCurve(meridianSamples),
+    sphereCurve(figure8Samples(0)),
+    sphereCurve(figure8Samples(Math.PI / 2)),
+  ];
+  seamCurves.forEach(c => {
+    const seam = new THREE.Mesh(
+      new THREE.TubeGeometry(c, 128, seamTubeR, 8, true),
+      seamMat
+    );
+    seam.position.y = 1.48;
+    group.add(seam);
+  });
+
+  // ---- Gold finials at the four base corners ----
+  // Slightly elongated (pointed top) — small pyramidal accents
+  const finialPositions = [
+    [-0.95, -1.66, -0.95], [0.95, -1.66, -0.95],
+    [-0.95, -1.66,  0.95], [0.95, -1.66,  0.95],
+  ];
+  finialPositions.forEach(([x, y, z]) => {
+    const finial = new THREE.Mesh(new THREE.SphereGeometry(0.085, 20, 20), gold);
+    finial.position.set(x, y, z);
+    finial.scale.set(1, 1.4, 1);                  // slight upward elongation
+    group.add(finial);
+    // tiny cap on top of each finial
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), goldDeep);
+    cap.position.set(x, y + 0.11, z);
+    group.add(cap);
+  });
+
+  group.userData.materials = [gold, goldDeep, ...plateMats, seamMat];
+  return group;
+}
+
+/* ============================================================
+   4.  DUST PARTICLE FIELD
+   ============================================================ */
+function buildDust() {
+  const count = 900;
+  const positions = new Float32Array(count * 3);
+  const seeds = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    positions[i*3]     = (Math.random() - 0.5) * 28;
+    positions[i*3 + 1] = (Math.random() - 0.5) * 18;
+    positions[i*3 + 2] = (Math.random() - 0.5) * 26 - 4;
+    seeds[i] = Math.random() * Math.PI * 2;
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('seed', new THREE.BufferAttribute(seeds, 1));
+
+  // soft round point sprite
+  const sprite = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, 'rgba(255,255,255,1)');
+    grd.addColorStop(0.4, 'rgba(255,255,255,0.4)');
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    g.fillRect(0,0,64,64);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  })();
+
+  const mat = new THREE.PointsMaterial({
+    map: sprite,
+    size: 0.085,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    color: 0xffe7c8,
+  });
+  return new THREE.Points(geom, mat);
+}
+
+/* ============================================================
+   5.  ASSEMBLE THE SCENE
+   ============================================================ */
+const basketball = buildBasketball();
+basketball.position.set(0, 0, 0);
+scene.add(basketball);
+
+const player = buildPlayer();
+player.position.set(2.4, -8, 0); // start below frame (right side)
+player.scale.setScalar(1.0);
+scene.add(player);
+
+const trophy = buildTrophy();
+trophy.position.set(0, 12, 0); // start above frame
+trophy.scale.setScalar(0.95);
+scene.add(trophy);
+HDR_DEFERRED.trophy = trophy;
+
+const dust = buildDust();
+scene.add(dust);
+
+/* ============================================================
+   6.  POSTPROCESSING — bloom for that cinematic glow
+   ============================================================ */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.55, // strength
+  0.85, // radius
+  0.18  // threshold
+);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+/* ============================================================
+   7.  MOUSE PARALLAX (Scene 1)
+   ============================================================ */
+const pointer = { x: 0, y: 0, lerpX: 0, lerpY: 0 };
+window.addEventListener('mousemove', (e) => {
+  pointer.x = (e.clientX / window.innerWidth)  * 2 - 1;
+  pointer.y = -((e.clientY / window.innerHeight) * 2 - 1);
+});
+
+let parallaxOn = true;
+
+/* ============================================================
+   8.  TROPHY DRAG-TO-ROTATE (Scene 3)
+   ============================================================ */
+let trophyDragOn = false;
+let isDragging = false;
+let dragPrevX = 0;
+let trophyVelocityY = 0;          // angular velocity for inertia after release
+const TROPHY_AUTO_SPIN = 0.0035;  // when not dragging in scene 3
+
+function onPointerDown(e) {
+  if (!trophyDragOn) return;
+  isDragging = true;
+  dragPrevX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+  document.body.classList.add('is-dragging');
+}
+function onPointerMove(e) {
+  if (!isDragging) return;
+  const x = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+  const dx = x - dragPrevX;
+  dragPrevX = x;
+  const delta = dx * 0.008;
+  trophy.rotation.y += delta;
+  trophyVelocityY = delta;
+}
+function onPointerUp() {
+  isDragging = false;
+  document.body.classList.remove('is-dragging');
+}
+canvas.addEventListener('pointerdown', onPointerDown);
+window.addEventListener('pointermove', onPointerMove);
+window.addEventListener('pointerup', onPointerUp);
+canvas.addEventListener('touchstart', onPointerDown, { passive: true });
+window.addEventListener('touchmove', onPointerMove, { passive: true });
+window.addEventListener('touchend', onPointerUp);
+
+/* ============================================================
+   9.  GSAP + SCROLLTRIGGER TIMELINES
+   Each section transition is its own scrub-locked timeline.
+   ============================================================ */
+
+// -------- Scene 1 → Scene 2 (basketball -> player) --------
+gsap.timeline({
+  scrollTrigger: {
+    trigger: '.scene-2',
+    start: 'top bottom',
+    end: 'top top',
+    scrub: SCRUB,
+  }
+})
+// camera dives forward through the ball
+.to(camera.position, { z: 4.2, ease: 'power2.in' }, 0)
+// basketball scales into the camera and fades
+.to(basketball.scale,    { x: 4, y: 4, z: 4, ease: 'power2.in' }, 0)
+.to(basketball.material, { opacity: 0, ease: 'power2.in' }, 0)
+// player rises from below + spins to face camera
+.fromTo(player.position,
+  { y: -8, x: 3 },
+  { y: -1.6, x: 1.8, ease: 'power3.out' }, 0)
+.fromTo(player.rotation,
+  { y: -Math.PI * 1.2 },
+  { y: 0, ease: 'power2.out' }, 0)
+// camera nudges down/right slightly to frame him
+.to(camera.position, { y: 0.2, x: 0.4 }, 0);
+
+// -------- Scene 2 → Scene 3 (player -> trophy) --------
+gsap.timeline({
+  scrollTrigger: {
+    trigger: '.scene-3',
+    start: 'top bottom',
+    end: 'top top',
+    scrub: SCRUB,
+  }
+})
+// player moves up + right and fades out (motion-blur feel via fast x-shift)
+.to(player.position, { x: 7, y: 2.4, ease: 'power2.in' }, 0)
+.to(player.rotation, { y: 0.6, ease: 'none' }, 0)
+.to({}, { duration: 0.5, // step to fade group materials together
+  onUpdate: function() {
+    const p = this.progress();
+    player.userData.materials.forEach(m => m.opacity = 1 - p);
+  }
+}, 0)
+// camera pans up + right
+.to(camera.position, { y: 0.4, x: 0.0, z: 5.5, ease: 'power2.inOut' }, 0)
+// trophy descends from above
+.fromTo(trophy.position,
+  { y: 12 },
+  { y: -0.4, ease: 'power3.out' }, 0)
+.fromTo(trophy.rotation,
+  { y: -1.2 },
+  { y: 0, ease: 'power2.out' }, 0);
+
+// -------- Toggle parallax based on which scene is in view --------
+ScrollTrigger.create({
+  trigger: '.scene-2',
+  start: 'top 80%',
+  onEnter:     () => parallaxOn = false,
+  onLeaveBack: () => parallaxOn = true,
+});
+
+// -------- Enable trophy interactivity in Scene 3 --------
+ScrollTrigger.create({
+  trigger: '.scene-3',
+  start: 'top 60%',
+  end: 'bottom top',
+  onEnter:     () => { trophyDragOn = true;  document.body.classList.add('is-trophy-active'); },
+  onLeave:     () => { trophyDragOn = false; document.body.classList.remove('is-trophy-active'); },
+  onEnterBack: () => { trophyDragOn = true;  document.body.classList.add('is-trophy-active'); },
+  onLeaveBack: () => { trophyDragOn = false; document.body.classList.remove('is-trophy-active'); },
+});
+
+// -------- Hide scroll hint after first scroll --------
+let hinted = false;
+window.addEventListener('scroll', () => {
+  if (!hinted && window.scrollY > 60) {
+    document.getElementById('scrollHint').classList.add('hidden');
+    hinted = true;
+  }
+}, { passive: true });
+
+// -------- Top scroll progress bar --------
+const progressEl = document.getElementById('scrollProgress');
+window.addEventListener('scroll', () => {
+  const max = document.documentElement.scrollHeight - window.innerHeight;
+  const pct = max > 0 ? (window.scrollY / max) * 100 : 0;
+  progressEl.style.width = pct + '%';
+}, { passive: true });
+
+// -------- Stats reel: count-up + sparkline reveal --------
+document.querySelectorAll('.stat').forEach((stat) => {
+  const target = parseInt(stat.dataset.target, 10);
+  const numEl  = stat.querySelector('.num');
+  const spark  = stat.querySelector('.stat-spark');
+  ScrollTrigger.create({
+    trigger: stat,
+    start: 'top 80%',
+    once: true,
+    onEnter: () => {
+      const obj = { v: 0 };
+      gsap.to(obj, {
+        v: target,
+        duration: 1.6,
+        ease: 'power2.out',
+        onUpdate: () => { numEl.textContent = Math.floor(obj.v); }
+      });
+      if (spark) {
+        // Slight delay so the count-up leads the sparkline by ~half a beat
+        setTimeout(() => spark.classList.add('in-view'), 280);
+      }
+    }
+  });
+});
+
+// -------- Chart 09 — Title distribution (animate bar fills on enter) --------
+const titleBarsEl = document.getElementById('titleBars');
+if (titleBarsEl) {
+  ScrollTrigger.create({
+    trigger: titleBarsEl,
+    start: 'top 78%',
+    once: true,
+    onEnter: () => titleBarsEl.classList.add('in-view'),
+  });
+  // Stagger the bar reveals via per-row transition-delay
+  titleBarsEl.querySelectorAll('.tb-row').forEach((row, i) => {
+    row.querySelector('.tb-fill')?.style.setProperty('transition-delay', (0.05 + i * 0.07) + 's');
+  });
+}
+
+// -------- Chart 03 — Shot chart entry animation --------
+const shotBlockEl = document.getElementById('shotBlock');
+if (shotBlockEl) {
+  // Stagger the zone reveals via per-zone transition-delay on the SVG circles
+  shotBlockEl.querySelectorAll('.shot-chart .zone').forEach((z, i) => {
+    z.style.setProperty('transition-delay', (0.08 + i * 0.06) + 's');
+  });
+  ScrollTrigger.create({
+    trigger: shotBlockEl,
+    start: 'top 70%',
+    once: true,
+    onEnter: () => shotBlockEl.classList.add('in-view'),
+  });
+}
+
+// -------- Section 05.5 — Moments (horizontal pinned scroll) --------
+(function setupMoments() {
+  const block = document.getElementById('momentsBlock');
+  const track = document.getElementById('momentsTrack');
+  if (!block || !track) return;
+
+  if (reducedMotion) {
+    // Reduced motion: stack frames vertically, drop the pin entirely
+    block.style.height = 'auto';
+    track.style.flexWrap = 'wrap';
+    track.style.width = '100%';
+    track.style.padding = '12vh 8vw';
+    track.style.justifyContent = 'center';
+    track.querySelectorAll('.moment').forEach(m => {
+      m.style.width = '100%';
+      m.style.maxWidth = '900px';
+      m.style.marginRight = '0';
+      m.style.marginBottom = '6vh';
+    });
+    return;
+  }
+
+  // Pin the section, scrub horizontal translation as user scrolls vertically.
+  // GSAP canonical horizontal-scroll-via-vertical-scroll pattern.
+  const getDistance = () => Math.max(0, track.scrollWidth - window.innerWidth);
+  gsap.to(track, {
+    x: () => -getDistance(),
+    ease: 'none',
+    scrollTrigger: {
+      trigger: block,
+      pin: true,
+      scrub: 1,
+      end: () => '+=' + getDistance(),
+      invalidateOnRefresh: true,
+      anticipatePin: 1,
+    },
+  });
+
+  // Hide the SCROLL cue once the user starts moving the track
+  const cue = block.querySelector('.moments-cue');
+  if (cue) {
+    ScrollTrigger.create({
+      trigger: block,
+      start: 'top 30%',
+      onEnter:     () => cue.style.opacity = '0',
+      onLeaveBack: () => cue.style.opacity = '1',
+    });
+  }
+})();
+
+// -------- Chart 02 — Playoff Bracket (2024 NBA Playoffs) --------
+(function buildBracketChart() {
+  const shell = document.getElementById('bracketShell');
+  if (!shell) return;
+
+  const data = {
+    west: {
+      r1: [
+        { high: { team: 'OKC', seed: 1 }, low: { team: 'NOP', seed: 8 }, winner: 'high', score: '4–0' },
+        { high: { team: 'LAC', seed: 4 }, low: { team: 'DAL', seed: 5 }, winner: 'low',  score: '4–2' },
+        { high: { team: 'MIN', seed: 3 }, low: { team: 'PHX', seed: 6 }, winner: 'high', score: '4–0' },
+        { high: { team: 'DEN', seed: 2 }, low: { team: 'LAL', seed: 7 }, winner: 'high', score: '4–1' },
+      ],
+      r2: [
+        { high: { team: 'OKC' }, low: { team: 'DAL' }, winner: 'low',  score: '4–2' },
+        { high: { team: 'MIN' }, low: { team: 'DEN' }, winner: 'high', score: '4–3' },
+      ],
+      r3: [
+        { high: { team: 'DAL' }, low: { team: 'MIN' }, winner: 'high', score: '4–1' },
+      ],
+    },
+    east: {
+      r1: [
+        { high: { team: 'BOS', seed: 1 }, low: { team: 'MIA', seed: 8 }, winner: 'high', score: '4–1' },
+        { high: { team: 'CLE', seed: 4 }, low: { team: 'ORL', seed: 5 }, winner: 'high', score: '4–3' },
+        { high: { team: 'MIL', seed: 3 }, low: { team: 'IND', seed: 6 }, winner: 'low',  score: '4–2' },
+        { high: { team: 'NYK', seed: 2 }, low: { team: 'PHI', seed: 7 }, winner: 'high', score: '4–2' },
+      ],
+      r2: [
+        { high: { team: 'BOS' }, low: { team: 'CLE' }, winner: 'high', score: '4–1' },
+        { high: { team: 'IND' }, low: { team: 'NYK' }, winner: 'high', score: '4–3' },
+      ],
+      r3: [
+        { high: { team: 'BOS' }, low: { team: 'IND' }, winner: 'high', score: '4–0' },
+      ],
+    },
+    finals: { high: { team: 'BOS' }, low: { team: 'DAL' }, winner: 'high', score: '4–1' },
+  };
+
+  const SVG_W = 1280, SVG_H = 360;
+  const BOX_W = 152, BOX_H = 58;
+  const colX = [0, 188, 376, 564, 752, 940, 1128];
+  const r1Y  = [10, 90, 170, 250];
+  const r2Y  = [50, 210];
+  const r3Y  = [130];
+  const finY = 130;
+
+  const winnerOf = m => m.winner === 'high' ? m.high.team : m.low.team;
+  const champEast = winnerOf(data.east.r3[0]);   // BOS
+  const champWest = winnerOf(data.west.r3[0]);   // DAL
+  const champ     = winnerOf(data.finals);       // BOS
+
+  function box(x, topY, m, opts = {}) {
+    const winHigh = m.winner === 'high';
+    const winBoxClass = opts.crown ? ' win-box' : '';
+    const seedH = m.high.seed != null ? `<text class="mu-seed${winHigh ? ' winner-seed' : ''}" x="10" y="${BOX_H/4}">${m.high.seed}</text>` : '';
+    const seedL = m.low.seed != null ? `<text class="mu-seed${!winHigh ? ' winner-seed' : ''}" x="10" y="${BOX_H*3/4}">${m.low.seed}</text>` : '';
+    const teamX_H = m.high.seed != null ? 28 : 12;
+    const teamX_L = m.low.seed != null ? 28 : 12;
+    return `
+      <g class="matchup" transform="translate(${x}, ${topY})">
+        <rect class="mu-bg${winBoxClass}" x="0" y="0" width="${BOX_W}" height="${BOX_H}" rx="2"></rect>
+        <line class="mu-divider" x1="6" y1="${BOX_H/2}" x2="${BOX_W-6}" y2="${BOX_H/2}"></line>
+        ${seedH}
+        <text class="mu-team${winHigh ? ' winner' : ''}" x="${teamX_H}" y="${BOX_H/4}">${m.high.team}</text>
+        ${winHigh ? `<text class="mu-score" x="${BOX_W-8}" y="${BOX_H/4}">${m.score}</text>` : ''}
+        ${seedL}
+        <text class="mu-team${!winHigh ? ' winner' : ''}" x="${teamX_L}" y="${BOX_H*3/4}">${m.low.team}</text>
+        ${!winHigh ? `<text class="mu-score" x="${BOX_W-8}" y="${BOX_H*3/4}">${m.score}</text>` : ''}
+      </g>`;
+  }
+
+  function conn(fromX, fromY, toX, toY, isWin) {
+    const midX = (fromX + toX) / 2;
+    return `<path class="conn${isWin ? ' win' : ''}" d="M ${fromX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${toX} ${toY}"></path>`;
+  }
+
+  let html = `<svg viewBox="-10 -30 ${SVG_W + 20} ${SVG_H + 60}" class="bracket-svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`;
+
+  // Round headers
+  const roundNames = ['FIRST ROUND', 'CONF SEMIS', 'CONF FINALS', 'NBA FINALS', 'CONF FINALS', 'CONF SEMIS', 'FIRST ROUND'];
+  roundNames.forEach((name, i) => {
+    html += `<text class="round-tag" x="${colX[i] + BOX_W/2}" y="-12">${name}</text>`;
+  });
+
+  // Conference labels
+  html += `<text class="conf-tag" x="${colX[0] + BOX_W/2}" y="${SVG_H + 20}">WEST</text>`;
+  html += `<text class="conf-tag" x="${colX[6] + BOX_W/2}" y="${SVG_H + 20}">EAST</text>`;
+
+  // ===== WEST SIDE (left → right) =====
+  // R1
+  data.west.r1.forEach((m, i) => { html += box(colX[0], r1Y[i], m); });
+  // R2
+  data.west.r2.forEach((m, i) => { html += box(colX[1], r2Y[i], m); });
+  // R3 (WCF)
+  data.west.r3.forEach((m, i) => { html += box(colX[2], r3Y[i], m); });
+
+  // R1 → R2 connectors  (champ-path = winner is West champion)
+  for (let i = 0; i < 4; i++) {
+    const r2idx = i < 2 ? 0 : 1;
+    const isWin = winnerOf(data.west.r1[i]) === champWest && winnerOf(data.west.r2[r2idx]) === champWest;
+    html += conn(colX[0] + BOX_W, r1Y[i] + BOX_H/2, colX[1], r2Y[r2idx] + BOX_H/2, isWin);
+  }
+  // R2 → R3
+  for (let i = 0; i < 2; i++) {
+    const isWin = winnerOf(data.west.r2[i]) === champWest;
+    html += conn(colX[1] + BOX_W, r2Y[i] + BOX_H/2, colX[2], r3Y[0] + BOX_H/2, isWin);
+  }
+  // R3 → Finals — both conference winners get the orange thread; only the
+  // champion gets the crown badge above the finals box.
+  html += conn(colX[2] + BOX_W, r3Y[0] + BOX_H/2, colX[3], finY + BOX_H/2, true);
+
+  // ===== EAST SIDE (right → left, mirrored) =====
+  data.east.r1.forEach((m, i) => { html += box(colX[6], r1Y[i], m); });
+  data.east.r2.forEach((m, i) => { html += box(colX[5], r2Y[i], m); });
+  data.east.r3.forEach((m, i) => { html += box(colX[4], r3Y[i], m); });
+
+  // R1 → R2 connectors (East mirrors so connectors go right-to-left)
+  for (let i = 0; i < 4; i++) {
+    const r2idx = i < 2 ? 0 : 1;
+    const isWin = winnerOf(data.east.r1[i]) === champEast && winnerOf(data.east.r2[r2idx]) === champEast;
+    html += conn(colX[6], r1Y[i] + BOX_H/2, colX[5] + BOX_W, r2Y[r2idx] + BOX_H/2, isWin);
+  }
+  // R2 → R3
+  for (let i = 0; i < 2; i++) {
+    const isWin = winnerOf(data.east.r2[i]) === champEast;
+    html += conn(colX[5], r2Y[i] + BOX_H/2, colX[4] + BOX_W, r3Y[0] + BOX_H/2, isWin);
+  }
+  // R3 → Finals
+  html += conn(colX[4], r3Y[0] + BOX_H/2, colX[3] + BOX_W, finY + BOX_H/2, true);
+
+  // ===== FINALS BOX (centered) =====
+  html += box(colX[3], finY, data.finals, { crown: true });
+
+  // Champion crown — small triangle above finals box
+  const crownX = colX[3] + BOX_W/2;
+  const crownY = finY - 14;
+  html += `<polygon class="champ-crown" points="${crownX-8},${crownY+8} ${crownX-3},${crownY-2} ${crownX},${crownY+4} ${crownX+3},${crownY-2} ${crownX+8},${crownY+8}"></polygon>`;
+  html += `<text class="round-tag" style="fill: var(--accent-orange); font-size: 10px; letter-spacing: 0.4em;" x="${crownX}" y="${crownY-6}">CHAMP</text>`;
+
+  html += `</svg>`;
+  shell.innerHTML = html;
+
+  // Stagger the matchup reveals so the bracket "writes itself" round-by-round
+  shell.querySelectorAll('.matchup').forEach((m, i) => {
+    m.style.transitionDelay = (0.04 + i * 0.04) + 's';
+  });
+  shell.querySelectorAll('.conn').forEach((c, i) => {
+    c.style.transitionDelay = (0.5 + i * 0.05) + 's';
+  });
+
+  ScrollTrigger.create({
+    trigger: '#bracketBlock',
+    start: 'top 70%',
+    once: true,
+    onEnter: () => document.getElementById('bracketBlock').classList.add('in-view'),
+  });
+})();
+
+// -------- Chart 04 — Finals margin of victory (line chart) --------
+(function buildMarginChart() {
+  const svg = document.getElementById('marginSvg');
+  if (!svg) return;
+
+  const data = [
+    [1980, 7.5], [1981, 7.8], [1982, 6.5], [1983, 18.0], [1984, 5.7],
+    [1985, 11.2], [1986, 9.0], [1987, 8.5], [1988, 6.5], [1989, 19.0],
+    [1990, 9.0], [1991, 13.4], [1992, 7.5], [1993, 5.5], [1994, 8.6],
+    [1995, 12.5], [1996, 14.0], [1997, 4.7], [1998, 7.7], [1999, 5.8],
+    [2000, 8.5], [2001, 12.0], [2002, 9.8], [2003, 5.0], [2004, 11.0],
+    [2005, 5.4], [2006, 6.0], [2007, 13.5], [2008, 8.0], [2009, 6.5],
+    [2010, 4.6], [2011, 7.0], [2012, 9.5], [2013, 4.5], [2014, 14.0],
+    [2015, 6.0], [2016, 7.5], [2017, 8.0], [2018, 14.0], [2019, 5.0],
+    [2020, 8.0], [2021, 8.5], [2022, 7.0], [2023, 5.5], [2024, 9.5],
+  ];
+
+  const W = 1080, H = 360;
+  const PAD = { l: 60, r: 30, t: 30, b: 36 };
+  const xMin = 1980, xMax = 2024, yMin = 0, yMax = 22;
+  const xs = (x) => PAD.l + ((x - xMin) / (xMax - xMin)) * (W - PAD.l - PAD.r);
+  const ys = (y) => H - PAD.b - ((y - yMin) / (yMax - yMin)) * (H - PAD.t - PAD.b);
+
+  let pathD = '';
+  data.forEach(([x, y], i) => { pathD += (i === 0 ? 'M ' : ' L ') + xs(x).toFixed(1) + ' ' + ys(y).toFixed(1); });
+  const areaD = pathD + ` L ${xs(xMax).toFixed(1)} ${ys(0)} L ${xs(xMin).toFixed(1)} ${ys(0)} Z`;
+
+  let grid = '';
+  [0, 5, 10, 15, 20].forEach(v => {
+    grid += `<line class="grid-line" x1="${PAD.l}" y1="${ys(v)}" x2="${W - PAD.r}" y2="${ys(v)}"></line>`;
+    grid += `<text class="axis-text" x="${PAD.l - 10}" y="${ys(v)}" text-anchor="end" dominant-baseline="middle">${v}</text>`;
+  });
+  let xLabels = '';
+  [1980, 1990, 2000, 2010, 2020].forEach(yr => {
+    xLabels += `<text class="axis-text" x="${xs(yr)}" y="${H - PAD.b + 18}" text-anchor="middle">${yr}</text>`;
+  });
+  // Y-axis hint
+  grid += `<text class="axis-text" x="${PAD.l}" y="${PAD.t - 12}" text-anchor="start">PTS / GAME · AVG MARGIN</text>`;
+
+  const annos = [
+    { year: 1983, val: 18.0, text: '"Fo. Fo. Fo." — Philly\'s sweep', dx: 24,  dy: -16 },
+    { year: 1989, val: 19.0, text: 'Bad Boys sweep the Lakers',     dx: -18, dy: -32 },
+    { year: 2005, val: 5.4,  text: 'Spurs / Pistons G7',             dx: -18, dy: 30 },
+    { year: 2013, val: 4.5,  text: 'Ray Allen\'s 3 — MIA G7',        dx: 12,  dy: 32 },
+    { year: 2018, val: 14.0, text: 'Warriors sweep Cavs',            dx: 12,  dy: -14 },
+  ];
+  let annoMarkup = '';
+  annos.forEach(a => {
+    const cx = xs(a.year), cy = ys(a.val);
+    const lx = cx + a.dx, ly = cy + a.dy;
+    annoMarkup += `<line class="anno-line" x1="${cx}" y1="${cy}" x2="${lx}" y2="${ly}"></line>`;
+    const anchor = a.dx < 0 ? 'end' : 'start';
+    const tx = a.dx < 0 ? lx - 4 : lx + 4;
+    annoMarkup += `<text class="anno-mono" x="${tx}" y="${ly - 2}" text-anchor="${anchor}">${a.year}</text>`;
+    annoMarkup += `<text class="anno-text" x="${tx}" y="${ly + 14}" text-anchor="${anchor}">${a.text}</text>`;
+  });
+
+  let points = '';
+  data.forEach(([x, y]) => { points += `<circle class="point" cx="${xs(x)}" cy="${ys(y)}" r="3"></circle>`; });
+
+  svg.innerHTML = `${grid}${xLabels}<path class="area" d="${areaD}"></path><path class="line" d="${pathD}"></path>${points}${annoMarkup}`;
+
+  ScrollTrigger.create({
+    trigger: '#marginBlock', start: 'top 78%', once: true,
+    onEnter: () => document.getElementById('marginBlock').classList.add('in-view'),
+  });
+})();
+
+// -------- Chart 05 — Era radar small multiples --------
+(function buildEraRadars() {
+  const grid = document.getElementById('erasGrid');
+  if (!grid) return;
+
+  const eras = [
+    { name: 'Russell',  years: '1957–1969', key: 'Bill Russell · the original Celtics dynasty',          values: [11, 0.66, 5, 13, 0.66] },
+    { name: 'Showtime', years: '1980–1989', key: 'Magic & Bird · two coasts define the league',          values: [8,  0.62, 8, 10, 0.50] },
+    { name: 'Jordan',   years: '1991–1998', key: 'Six in eight · zero finals losses',                    values: [6,  0.72, 5, 8,  0.45] },
+    { name: 'Modern',   years: '2014–2024', key: 'Warriors · LeBron · the parity era',                   values: [5,  0.58, 4, 11, 0.30] },
+  ];
+  const axes = ['Titles', 'Win%', 'MVPs', 'Length', 'Share'];
+  const maxes = [12, 0.75, 10, 15, 0.70];
+
+  const W = 220, H = 220, cx = W/2, cy = H/2, R = 78;
+  const N = 5;
+
+  function polyPoints(values) {
+    return values.map((v, i) => {
+      const angle = (i / N) * Math.PI * 2 - Math.PI/2;
+      const r = (v / maxes[i]) * R;
+      return (cx + Math.cos(angle) * r).toFixed(1) + ',' + (cy + Math.sin(angle) * r).toFixed(1);
+    }).join(' ');
+  }
+  function gridPoints(ratio) {
+    return Array.from({length: N}, (_, i) => {
+      const angle = (i / N) * Math.PI * 2 - Math.PI/2;
+      return (cx + Math.cos(angle) * R * ratio).toFixed(1) + ',' + (cy + Math.sin(angle) * R * ratio).toFixed(1);
+    }).join(' ');
+  }
+  function axisLines() {
+    let s = '';
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2 - Math.PI/2;
+      const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+      s += `<line class="axis-line" x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`;
+    }
+    return s;
+  }
+  function axisLabels() {
+    let s = '';
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2 - Math.PI/2;
+      const x = cx + Math.cos(a) * (R + 14), y = cy + Math.sin(a) * (R + 14);
+      s += `<text class="axis-label" x="${x.toFixed(1)}" y="${y.toFixed(1)}" dominant-baseline="middle">${axes[i]}</text>`;
+    }
+    return s;
+  }
+
+  let html = '';
+  eras.forEach((era, i) => {
+    html += `
+      <div class="era-card">
+        <svg class="era-radar" viewBox="0 0 ${W} ${H}" aria-hidden="true">
+          <polygon class="grid-poly" points="${gridPoints(0.33)}"/>
+          <polygon class="grid-poly" points="${gridPoints(0.66)}"/>
+          <polygon class="grid-poly" points="${gridPoints(1)}"/>
+          ${axisLines()}
+          <polygon class="data-poly" points="${polyPoints(era.values)}" style="transition-delay: ${0.1 + i*0.12}s;"/>
+          ${axisLabels()}
+        </svg>
+        <div class="era-name">${era.name}</div>
+        <div class="era-years">${era.years}</div>
+        <div class="era-key">${era.key}</div>
+      </div>`;
+  });
+  grid.innerHTML = html;
+
+  ScrollTrigger.create({
+    trigger: '#erasBlock', start: 'top 78%', once: true,
+    onEnter: () => document.getElementById('erasBlock').classList.add('in-view'),
+  });
+})();
+
+// -------- Chart 06 — Decade trio (small multiples line) --------
+(function buildDecadeCharts() {
+  const block = document.getElementById('decadeBlock');
+  if (!block) return;
+  const datasets = {
+    pace:  { data: [119, 116, 109, 100, 92,  92,  96,  99.7], yMin: 85, yMax: 125 },
+    ppg:   { data: [88,  105, 110, 105, 98,  100, 105, 114],  yMin: 80, yMax: 120 },
+    three: { data: [2.3, 9.9, 13.7, 18.0, 22.4, 35.1],         yMin: 0,  yMax: 40 },
+  };
+  const W = 320, H = 110, PAD = { l: 8, r: 8, t: 12, b: 12 };
+
+  block.querySelectorAll('.dec-svg').forEach((svg, idx) => {
+    const ds = datasets[svg.dataset.metric];
+    if (!ds) return;
+    const n = ds.data.length;
+    const xs = (i) => PAD.l + (i / (n - 1)) * (W - PAD.l - PAD.r);
+    const ys = (v) => H - PAD.b - ((v - ds.yMin) / (ds.yMax - ds.yMin)) * (H - PAD.t - PAD.b);
+    let pathD = '';
+    ds.data.forEach((v, i) => { pathD += (i === 0 ? 'M ' : ' L ') + xs(i).toFixed(1) + ' ' + ys(v).toFixed(1); });
+    const areaD = pathD + ` L ${xs(n - 1).toFixed(1)} ${H - PAD.b} L ${xs(0).toFixed(1)} ${H - PAD.b} Z`;
+    let pts = '';
+    ds.data.forEach((v, i) => { pts += `<circle class="point" cx="${xs(i).toFixed(1)}" cy="${ys(v).toFixed(1)}" r="2.5"></circle>`; });
+    let grid = '';
+    [0.5].forEach(r => {
+      const y = PAD.t + r * (H - PAD.t - PAD.b);
+      grid += `<line class="grid-line" x1="${PAD.l}" y1="${y}" x2="${W - PAD.r}" y2="${y}"></line>`;
+    });
+    svg.innerHTML = `${grid}<path class="area" d="${areaD}" style="transition-delay: ${0.3 + idx*0.15}s;"></path><path class="line" d="${pathD}" style="transition-delay: ${idx*0.15}s;"></path>${pts}`;
+  });
+
+  ScrollTrigger.create({
+    trigger: '#decadeBlock', start: 'top 78%', once: true,
+    onEnter: () => block.classList.add('in-view'),
+  });
+})();
+
+// -------- Chart 08 — Round arcs (concentric ring chart) --------
+(function buildRoundArcs() {
+  const svg = document.getElementById('roundsSvg');
+  if (!svg) return;
+  const rings = [
+    { label: 'OPEN PLAYOFFS',   pct: 53.3, r: 152 },
+    { label: 'CONFERENCE SEMIS', pct: 26.7, r: 122 },
+    { label: 'CONFERENCE FINAL', pct: 13.3, r: 92 },
+    { label: 'NBA FINALS',      pct: 6.7,  r: 62 },
+    { label: 'CHAMPION',        pct: 3.3,  r: 32 },
+  ];
+  const cx = 180, cy = 180, strokeW = 18;
+  let html = '';
+  rings.forEach((r, i) => {
+    const C = 2 * Math.PI * r.r;
+    const arcLen = C * (r.pct / 100);
+    const offset = C - arcLen;
+    html += `<circle class="ring-bg" cx="${cx}" cy="${cy}" r="${r.r}" stroke-width="${strokeW}"/>`;
+    html += `<circle class="ring" cx="${cx}" cy="${cy}" r="${r.r}" stroke-width="${strokeW}"
+                style="--ring-circ: ${C.toFixed(1)}; --ring-target: ${offset.toFixed(1)};
+                       transform: rotate(-90deg); transform-origin: ${cx}px ${cy}px;
+                       transition-delay: ${(0.15 + i*0.18).toFixed(2)}s;"/>`;
+  });
+  html += `<text class="center-num" x="${cx}" y="${cy - 4}">3.3%</text>`;
+  html += `<text class="center-label" x="${cx}" y="${cy + 22}">CHAMPION'S ODDS</text>`;
+  svg.innerHTML = html;
+
+  ScrollTrigger.create({
+    trigger: '#roundsBlock', start: 'top 78%', once: true,
+    onEnter: () => document.getElementById('roundsBlock').classList.add('in-view'),
+  });
+})();
+
+// -------- Chart 10 — Title treemap --------
+(function buildTreemap() {
+  const root = document.getElementById('treemap');
+  if (!root) return;
+  const data = [
+    { name: 'Boston Celtics',     titles: 18, last: '2024', cls: 't-mega',  cols: 4, rows: 4 },
+    { name: 'LA Lakers',          titles: 17, last: '2020', cls: 't-mega',  cols: 4, rows: 4 },
+    { name: 'Warriors',           titles: 7,  last: '2022', cls: 't-large', cols: 4, rows: 2 },
+    { name: 'Chicago Bulls',      titles: 6,  last: '1998', cls: 't-large', cols: 3, rows: 2 },
+    { name: 'San Antonio Spurs',  titles: 5,  last: '2014', cls: 't-large', cols: 3, rows: 2 },
+    { name: 'Detroit Pistons',    titles: 3,  last: '2004', cls: 't-mid',   cols: 2, rows: 2 },
+    { name: 'Miami Heat',         titles: 3,  last: '2013', cls: 't-mid',   cols: 2, rows: 2 },
+    { name: 'Philadelphia 76ers', titles: 3,  last: '1983', cls: 't-mid',   cols: 2, rows: 2 },
+    { name: 'Houston Rockets',    titles: 2,  last: '1995', cls: 't-mid',   cols: 2, rows: 1 },
+    { name: 'Milwaukee Bucks',    titles: 2,  last: '2021', cls: 't-mid',   cols: 2, rows: 1 },
+    { name: 'NY Knicks',          titles: 2,  last: '1973', cls: 't-mid',   cols: 2, rows: 1 },
+    { name: 'OKC Thunder',        titles: 2,  last: '2025', cls: 't-mid',   cols: 2, rows: 1 },
+    { name: 'Cavaliers',          titles: 1,  last: '2016', cls: '',         cols: 1, rows: 1 },
+    { name: 'Mavericks',          titles: 1,  last: '2011', cls: '',         cols: 1, rows: 1 },
+    { name: 'Nuggets',            titles: 1,  last: '2023', cls: '',         cols: 1, rows: 1 },
+    { name: 'Blazers',            titles: 1,  last: '1977', cls: '',         cols: 1, rows: 1 },
+    { name: 'Hawks',              titles: 1,  last: '1958', cls: '',         cols: 1, rows: 1 },
+    { name: 'Kings',              titles: 1,  last: '1951', cls: '',         cols: 1, rows: 1 },
+    { name: 'Bullets',            titles: 1,  last: '1978', cls: '',         cols: 1, rows: 1 },
+    { name: 'Raptors',            titles: 1,  last: '2019', cls: '',         cols: 1, rows: 1 },
+  ];
+  let html = '';
+  data.forEach((d, i) => {
+    html += `<div class="tile ${d.cls}" style="grid-column: span ${d.cols}; grid-row: span ${d.rows}; transition-delay: ${(0.04 + i*0.04).toFixed(2)}s;">
+      <div class="tile-name">${d.name}</div>
+      <div>
+        <div class="tile-num">${d.titles}</div>
+        <div class="tile-meta">last · ${d.last}</div>
+      </div>
+    </div>`;
+  });
+  root.innerHTML = html;
+
+  ScrollTrigger.create({
+    trigger: '#treemapBlock', start: 'top 78%', once: true,
+    onEnter: () => document.getElementById('treemapBlock').classList.add('in-view'),
+  });
+})();
+
+// -------- Chart 12 — Drought timeline --------
+(function buildDroughtTimeline() {
+  const root = document.getElementById('droughtRows');
+  if (!root) return;
+
+  const data = [
+    { name: 'Boston Celtics',     titles: [1957,1959,1960,1961,1962,1963,1964,1965,1966,1968,1969,1974,1976,1981,1984,1986,2008,2024] },
+    { name: 'LA Lakers',          titles: [1949,1950,1952,1953,1954,1972,1980,1982,1985,1987,1988,2000,2001,2002,2009,2010,2020] },
+    { name: 'Chicago Bulls',      titles: [1991,1992,1993,1996,1997,1998] },
+    { name: 'San Antonio Spurs',  titles: [1999,2003,2005,2007,2014] },
+    { name: 'NY Knicks',          titles: [1970,1973] },
+    { name: 'Philadelphia 76ers', titles: [1955,1967,1983] },
+    { name: 'Houston Rockets',    titles: [1994,1995] },
+    { name: 'Detroit Pistons',    titles: [1989,1990,2004] },
+    { name: 'Atlanta Hawks',      titles: [1958] },
+    { name: 'Cleveland Cavaliers',titles: [2016] },
+    { name: 'Toronto Raptors',    titles: [2019] },
+  ];
+  const yMin = 1947, yMax = 2025, yRange = yMax - yMin;
+  const currentYear = 2025;
+
+  let html = '';
+  data.forEach((team, idx) => {
+    const lastTitle = Math.max(...team.titles);
+    const drought = currentYear - lastTitle;
+    let track = '';
+    team.titles.forEach((y, i) => {
+      const x = ((y - yMin) / yRange) * 100;
+      track += `<span class="dr-tick" style="left: ${x.toFixed(2)}%; transition-delay: ${(idx*0.04 + i*0.025).toFixed(2)}s;"></span>`;
+    });
+    if (drought > 0) {
+      const x1 = ((lastTitle - yMin) / yRange) * 100;
+      const x2 = ((currentYear - yMin) / yRange) * 100;
+      track += `<div class="dr-current" style="left: ${x1.toFixed(2)}%; width: ${(x2 - x1).toFixed(2)}%;"></div>`;
+    }
+    html += `<div class="drought-row">
+      <span class="dr-name">${team.name}</span>
+      <div class="dr-track">${track}</div>
+      <span class="dr-meta">${team.titles.length}<span style="color:var(--ink-faint);">×</span> · <strong>${drought}y</strong> drought</span>
+    </div>`;
+  });
+  root.innerHTML = html;
+
+  ScrollTrigger.create({
+    trigger: '#droughtBlock', start: 'top 78%', once: true,
+    onEnter: () => document.getElementById('droughtBlock').classList.add('in-view'),
+  });
+})();
+
+// -------- Chart 11 — Series W/L sparkline per champion row --------
+document.querySelectorAll('.champ-list li[data-series]').forEach((li) => {
+  const seq = li.dataset.series || '';
+  if (!seq) return;
+  const spark = document.createElement('span');
+  spark.className = 'series-spark';
+  spark.setAttribute('aria-label', `Series result: ${seq}`);
+  for (let i = 0; i < seq.length; i++) {
+    const cell = document.createElement('span');
+    cell.className = 'cell' + (seq[i] === 'W' ? ' w' : '') + ' delay-' + Math.min(i, 6);
+    spark.appendChild(cell);
+  }
+  // Insert *inside* the games span so the row's 3-col grid stays intact
+  const gamesEl = li.querySelector('.games');
+  if (gamesEl) gamesEl.appendChild(spark);
+  else li.appendChild(spark);
+
+  ScrollTrigger.create({
+    trigger: li,
+    start: 'top 88%',
+    once: true,
+    onEnter: () => li.classList.add('in-view'),
+  });
+});
+
+// -------- Block titles fade-in on entry --------
+gsap.utils.toArray('.block-title, .section-tag').forEach((el) => {
+  gsap.from(el, {
+    scrollTrigger: { trigger: el, start: 'top 85%' },
+    opacity: 0,
+    y: 24,
+    duration: 0.9,
+    ease: 'power3.out',
+  });
+});
+
+// -------- Doctrine quote: subtle reveal --------
+gsap.from('.big-quote', {
+  scrollTrigger: { trigger: '.big-quote', start: 'top 75%' },
+  opacity: 0,
+  y: 30,
+  duration: 1.2,
+  ease: 'power2.out',
+});
+
+// -------- Champions roll: staggered list reveal --------
+gsap.from('.champ-list li', {
+  scrollTrigger: { trigger: '.champ-list', start: 'top 75%' },
+  opacity: 0,
+  y: 28,
+  duration: 0.7,
+  stagger: 0.07,
+  ease: 'power2.out',
+});
+
+// -------- Move trophy out of frame as champions section enters --------
+// Keeps the bloom from overwhelming the list typography
+gsap.timeline({
+  scrollTrigger: {
+    trigger: '.champions-roll',
+    start: 'top bottom',
+    end: 'top 30%',
+    scrub: SCRUB,
+  }
+})
+.to(trophy.position, { y: -8, x: -3, ease: 'power2.in' }, 0)
+.to(trophy.scale,    { x: 0.4, y: 0.4, z: 0.4, ease: 'power2.in' }, 0)
+.to(camera.position, { y: 1.0, ease: 'power2.inOut' }, 0)
+.to(bloom,           { strength: 0.25, ease: 'power2.in' }, 0);
+
+// Disable trophy drag once we're past it
+ScrollTrigger.create({
+  trigger: '.champions-roll',
+  start: 'top 80%',
+  onEnter:     () => { trophyDragOn = false; document.body.classList.remove('is-trophy-active'); },
+  onLeaveBack: () => { trophyDragOn = true;  document.body.classList.add('is-trophy-active'); },
+});
+
+/* ============================================================
+   10.  RENDER LOOP
+   ============================================================ */
+const clock = new THREE.Clock();
+let firstFrameRendered = false;
+
+function tick() {
+  const t  = clock.getElapsedTime();
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  if (!reducedMotion) {
+    // basketball auto-rotation + breathing tilt
+    basketball.rotation.y += 0.005;
+    basketball.rotation.x  = Math.sin(t * 0.4) * 0.08;
+
+    // mouse parallax (only when scene 1 is active)
+    if (parallaxOn) {
+      pointer.lerpX += (pointer.x - pointer.lerpX) * 0.06;
+      pointer.lerpY += (pointer.y - pointer.lerpY) * 0.06;
+      basketball.position.x = pointer.lerpX * 0.6;
+      basketball.position.y = pointer.lerpY * 0.4;
+    }
+
+    // player idle sway
+    player.rotation.y += 0.0015;
+  }
+
+  // trophy spin: drag-driven (always allowed — interactive intent)
+  // but auto-spin is only when motion is allowed
+  if (trophyDragOn) {
+    if (!isDragging) {
+      trophyVelocityY *= 0.94;
+      trophy.rotation.y += trophyVelocityY;
+      if (Math.abs(trophyVelocityY) < 0.0005 && !reducedMotion) {
+        trophy.rotation.y += TROPHY_AUTO_SPIN;
+      }
+    }
+  } else if (!reducedMotion) {
+    trophy.rotation.y += TROPHY_AUTO_SPIN * 0.6;
+  }
+
+  if (!reducedMotion) {
+    // dust drift
+    const pos = dust.geometry.attributes.position;
+    const seed = dust.geometry.attributes.seed;
+    for (let i = 0; i < pos.count; i++) {
+      const s = seed.array[i];
+      pos.array[i*3 + 1] += Math.sin(t * 0.35 + s) * 0.0015;
+      pos.array[i*3]     += Math.cos(t * 0.25 + s) * 0.0008;
+    }
+    pos.needsUpdate = true;
+    dust.rotation.y = t * 0.01;
+
+    // gently breathe the rim lights for life
+    rimBlue.intensity   = 80 + Math.sin(t * 0.8) * 6;
+    rimOrange.intensity = 90 + Math.sin(t * 0.6 + 1) * 8;
+  }
+
+  composer.render();
+
+  // First successful render → tell the staged loader the scene is alive.
+  // Loader still waits for type-on + HDR before fading.
+  if (!firstFrameRendered) {
+    firstFrameRendered = true;
+    if (window.__loaderFirstFrame) window.__loaderFirstFrame();
+    else if (window.__hideLoader) window.__hideLoader();
+  }
+
+  requestAnimationFrame(tick);
+}
+tick();
+
+/* ============================================================
+   11.  RESIZE
+   ============================================================ */
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.fov    = isPhone() ? 52 : 35;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  composer.setSize(w, h);
+  bloom.setSize(w, h);
+  ScrollTrigger.refresh();
+});
+
+/* ============================================================
+   11.5  POLISH — custom cursor + kicker microcopy + audio toggle
+   ============================================================ */
+
+// -------- Custom orange cursor ring (hidden on touch + reduced motion) --------
+(function setupCursor() {
+  if (matchMedia('(hover: none)').matches || reducedMotion) return;
+  const ring = document.createElement('div');
+  ring.className = 'cursor-ring';
+  document.body.appendChild(ring);
+  document.body.classList.add('cursor-hidden');
+
+  let rx = -100, ry = -100, tx = -100, ty = -100;
+  document.addEventListener('mousemove', (e) => {
+    tx = e.clientX; ty = e.clientY;
+    if (!ring.classList.contains('visible')) ring.classList.add('visible');
+  });
+  document.addEventListener('mouseleave', () => ring.classList.remove('visible'));
+
+  // Smooth follow — softer than 1:1 to feel intentional, not laggy
+  (function tickCursor() {
+    rx += (tx - rx) * 0.42;
+    ry += (ty - ry) * 0.42;
+    ring.style.transform = `translate3d(${rx - 11}px, ${ry - 11}px, 0)`;
+    requestAnimationFrame(tickCursor);
+  })();
+
+  // Hover affordance on interactive elements
+  ['a', 'button', '.moment', '.champ-list li', '.tile', '[data-cursor-hover]']
+    .forEach(sel => {
+      document.querySelectorAll(sel).forEach(el => {
+        el.addEventListener('mouseenter', () => ring.classList.add('over'));
+        el.addEventListener('mouseleave', () => ring.classList.remove('over'));
+      });
+    });
+
+  // Trophy drag — mirror the body's is-dragging class
+  const obs = new MutationObserver(() => {
+    ring.classList.toggle('dragging', document.body.classList.contains('is-dragging'));
+  });
+  obs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+})();
+
+// -------- Kicker microcopy — fade each scene's chapter card as user scrolls past --------
+document.querySelectorAll('.scene .kicker').forEach(kicker => {
+  if (reducedMotion) return; // keep static
+  ScrollTrigger.create({
+    trigger: kicker.parentElement,
+    start: 'top top',
+    end: 'bottom 80%',
+    scrub: true,
+    onUpdate: (self) => {
+      // fade between 0% (full) → 100% (gone) of scene scroll
+      kicker.style.opacity = (1 - self.progress).toFixed(3);
+    },
+  });
+});
+
+// -------- Audio toggle — silent by default, integration points commented --------
+(function setupAudioToggle() {
+  const btn = document.getElementById('audioToggle');
+  if (!btn) return;
+  const state = { on: false };
+  const lbl = btn.querySelector('.lbl');
+
+  btn.addEventListener('click', () => {
+    state.on = !state.on;
+    btn.classList.toggle('on', state.on);
+    btn.setAttribute('aria-pressed', state.on ? 'true' : 'false');
+    if (lbl) lbl.textContent = state.on ? 'AUDIO ON' : 'AUDIO OFF';
+    onAmbientToggle(state.on);
+  });
+
+  // ============================================================
+  // AUDIO INTEGRATION POINTS
+  // Silent by default to respect autoplay policies. Drop your own
+  // .mp3/.ogg files in an /audio folder and uncomment to enable.
+  // ============================================================
+  function onAmbientToggle(on) {
+    // const pad = (window.__audioPad ||= new Audio('audio/ambient-pad.mp3'));
+    // pad.loop = true; pad.volume = 0.32;
+    // if (on) pad.play().catch(() => {});
+    // else    pad.pause();
+  }
+
+  ScrollTrigger.create({
+    trigger: '.scene-2',
+    start: 'top 50%',
+    onEnter: () => {
+      if (!state.on) return;
+      // Dribble one-shot — courtside attack thud
+      // const dribble = new Audio('audio/dribble.mp3');
+      // dribble.volume = 0.55; dribble.play().catch(() => {});
+    },
+  });
+
+  ScrollTrigger.create({
+    trigger: '.scene-3',
+    start: 'top 50%',
+    onEnter: () => {
+      if (!state.on) return;
+      // Brass swell + crowd roar — trophy reveal moment
+      // const swell = new Audio('audio/brass-swell.mp3');
+      // swell.volume = 0.62; swell.play().catch(() => {});
+    },
+  });
+})();
+
+/* ============================================================
+   12.  LOADER
+   The loader is removed by three independent mechanisms (defined
+   in the inline <script> at the top of <body>):
+     1. Hard 3.5s timeout fallback
+     2. Visible error display if module import fails
+     3. window.__hideLoader() called on first successful render above
+   In a real build, gate the loader on Promise.all() of GLTFLoader
+   completions and call window.__hideLoader() when they all resolve.
+   ============================================================ */
+</script>
+</body>
+</html>
